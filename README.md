@@ -1,0 +1,106 @@
+# Dozor Agent Starter
+
+A self-hostable Laravel instrumentation and local agent starter, adapted from the public
+`laravel/nightwatch` package architecture and transport ideas, but renamed and reshaped for **Dozor**.
+
+## What this bundle gives you
+
+- Laravel package with `dozor:agent` and `dozor:status` commands
+- local TCP ingest client/server using a framed payload protocol
+- request tracing middleware
+- query, queue, and exception watchers
+- newline-delimited JSON storage for ingested records
+- configuration already renamed from `NIGHTWATCH_*` to `DOZOR_*`
+
+## What this is not
+
+- not a drop-in clone of the hosted Nightwatch backend
+- not a full production-ready APM yet
+- not a fork that keeps Laravel/Nightwatch branding
+
+It is a **good self-hosted starter**: clean enough to keep, small enough to reshape.
+
+## Install
+
+```bash
+composer require dozor/dozor-agent
+php artisan vendor:publish --tag=dozor-config
+```
+
+### Local package smoke install (path repository)
+
+```json
+{
+  "repositories": [
+    {
+      "type": "path",
+      "url": "../dozor-agent",
+      "options": {
+        "symlink": true
+      }
+    }
+  ]
+}
+```
+
+```bash
+composer require dozor/dozor-agent:*
+php artisan list | grep dozor:
+php artisan vendor:publish --tag=dozor-config
+```
+
+## Typical env
+
+```env
+DOZOR_ENABLED=true
+DOZOR_TOKEN=change-me
+DOZOR_APP_NAME="My App"
+DOZOR_ENV=production
+DOZOR_SERVER=app-1
+DOZOR_INGEST_URI=127.0.0.1:4815
+DOZOR_INGEST_EVENT_BUFFER=500
+DOZOR_REQUEST_SAMPLE_RATE=1.0
+DOZOR_IGNORE_QUERIES=false
+DOZOR_AGENT_STORE_PATH=/var/www/app/storage/app/dozor
+```
+
+## Run local agent
+
+```bash
+php artisan dozor:agent
+```
+
+Useful options:
+
+```bash
+php artisan dozor:agent --listen-on=127.0.0.1:4815 --store-path=/var/www/app/storage/app/dozor
+php artisan dozor:status
+```
+
+## Current record model
+
+The package emits records like:
+
+- `request`
+- `query`
+- `job`
+- `exception`
+- `custom`
+
+Each record includes a `trace_id`, timestamps, app/environment/server metadata, and a `payload` block.
+
+## Files worth editing first
+
+- `src/DozorServiceProvider.php`
+- `src/Core.php`
+- `src/Http/Middleware/TraceRequest.php`
+- `src/Agent/Server.php`
+- `config/dozor.php`
+
+## Suggested next steps
+
+1. swap NDJSON file storage for ClickHouse / Postgres / Kafka / Redis Streams
+2. add outgoing HTTP instrumentation
+3. add trace/span hierarchy instead of flat child records
+4. add metric rollups (minute buckets, P95/P99)
+5. correlate deployments/releases

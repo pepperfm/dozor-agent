@@ -1,0 +1,12 @@
+[program:dozor-agent]
+process_name=%(program_name)s_%(process_num)02d
+command=/usr/bin/php /var/www/app/artisan dozor:agent --listen-on=127.0.0.1:4815 --store-path=/var/www/app/storage/app/dozor
+user=pechka
+autostart=true
+autorestart=true
+stopasgroup=true
+killasgroup=true
+numprocs=1
+redirect_stderr=true
+stdout_logfile=/var/log/supervisor/dozor-agent.log
+stopwaitsecs=3600
