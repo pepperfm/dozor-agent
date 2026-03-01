@@ -42,9 +42,19 @@ final class AgentCommand extends Command
 
     public function handle(): int
     {
-        $listenOn = $this->option('listen-on') ?: ($this->ingestUri ?: '127.0.0.1:4815');
-        $serverName = $this->option('server') ?: ($this->server ?: gethostname() ?: 'unknown');
-        $storePath = $this->option('store-path') ?: ($this->storePath ?: storage_path('app/dozor'));
+        $listenOnOption = $this->option('listen-on');
+        $serverOption = $this->option('server');
+        $storePathOption = $this->option('store-path');
+
+        $listenOn = is_string($listenOnOption) && $listenOnOption !== ''
+            ? $listenOnOption
+            : ($this->ingestUri ?: '127.0.0.1:4815');
+        $serverName = is_string($serverOption) && $serverOption !== ''
+            ? $serverOption
+            : ($this->server ?: gethostname() ?: 'unknown');
+        $storePath = is_string($storePathOption) && $storePathOption !== ''
+            ? $storePathOption
+            : ($this->storePath ?: storage_path('app/dozor'));
         $tokenHash = substr(hash('xxh128', (string) $this->token), 0, 7);
         $silent = (bool) $this->option('silent');
 

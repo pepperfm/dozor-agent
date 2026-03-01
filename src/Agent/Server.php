@@ -54,7 +54,12 @@ final readonly class Server
     {
         $length = $this->readFrameLength($client);
         $frame = fread_all($client, $length);
-        [$version, $tokenHash, $payload] = explode(':', $frame, 3);
+        $parts = explode(':', $frame, 3);
+        if (count($parts) !== 3) {
+            throw new \RuntimeException('Malformed ingest frame: expected version, token hash and payload');
+        }
+
+        [$version, $tokenHash, $payload] = $parts;
 
         if ($version !== 'v1') {
             throw new \RuntimeException("Unsupported payload version [$version]");

@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Dozor;
 
 use Illuminate\Support\ServiceProvider;
-use Composer\InstalledVersions;
 use Dozor\Console\AgentCommand;
 use Dozor\Console\StatusCommand;
 use Dozor\Contracts\DozorContract as CoreContract;
@@ -39,7 +38,7 @@ class DozorServiceProvider extends ServiceProvider
                 transmitTo: (string) Arr::get($config, 'ingest.uri', '127.0.0.1:4815'),
                 connectionTimeout: (float) Arr::get($config, 'ingest.connection_timeout', 0.5),
                 timeout: (float) Arr::get($config, 'ingest.timeout', 0.5),
-                streamFactory: new SocketStreamFactory(),
+                streamFactory: \Closure::fromCallable(new SocketStreamFactory()),
                 buffer: new RecordsBuffer((int) Arr::get($config, 'ingest.event_buffer', 500)),
                 tokenHash: $tokenHash,
             );
@@ -82,12 +81,16 @@ class DozorServiceProvider extends ServiceProvider
         $this->app->singleton(AgentCommand::class, function (Application $app) {
             /** @var array<string, mixed> $config */
             $config = $app['config']->get('dozor', []);
+            $token = Arr::get($config, 'token');
+            $server = Arr::get($config, 'server');
+            $ingestUri = Arr::get($config, 'ingest.uri');
+            $storePath = Arr::get($config, 'agent.store_path', storage_path('app/dozor'));
 
             return new AgentCommand(
-                token: Arr::get($config, 'token'),
-                server: Arr::get($config, 'server'),
-                ingestUri: Arr::get($config, 'ingest.uri'),
-                storePath: Arr::get($config, 'agent.store_path', storage_path('app/dozor')),
+                token: is_string($token) ? $token : null,
+                server: is_string($server) ? $server : null,
+                ingestUri: is_string($ingestUri) ? $ingestUri : null,
+                storePath: is_string($storePath) ? $storePath : null,
             );
         });
     }
@@ -108,8 +111,18 @@ class DozorServiceProvider extends ServiceProvider
             ]);
         }
 
-        /** @var CoreContract $core */
-        $core = $this->app->make(CoreContract::class);
+        try {
+            /** @var CoreContract $core */
+            $core = $this->app->make(CoreContract::class);
+        } catch (Throwable $exception) {
+            logger()->error('dozor.package.discovery_failed', [
+                'class' => $exception::class,
+                'message' => $exception->getMessage(),
+            ]);
+
+            throw $exception;
+        }
+
         if (!$core->enabled()) {
             return;
         }
@@ -138,18 +151,5 @@ class DozorServiceProvider extends ServiceProvider
                 }
             }
         });
-    }
-
-    private function packageVersion(): string
-    {
-        if (!class_exists(InstalledVersions::class)) {
-            return 'dev';
-        }
-
-        try {
-            return InstalledVersions::getPrettyVersion('dozor/dozor-agent') ?? 'dev';
-        } catch (Throwable) {
-            return 'dev';
-        }
     }
 }
