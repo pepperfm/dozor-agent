@@ -10,11 +10,18 @@ use Dozor\Console\StatusCommand;
 use Dozor\Contracts\DozorContract as CoreContract;
 use Dozor\Contracts\IngestContract as IngestContract;
 use Dozor\Http\Middleware\TraceRequest;
+use Dozor\Watchers\ApplicationEventWatcher;
+use Dozor\Watchers\HttpWatcher;
+use Dozor\Watchers\LogWatcher;
 use Dozor\Watchers\QueueWatcher;
 use Dozor\Watchers\QueryWatcher;
 use Illuminate\Contracts\Config\Repository;
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Http\Client\Events\ConnectionFailed;
+use Illuminate\Http\Client\Events\RequestSending;
+use Illuminate\Http\Client\Events\ResponseReceived;
+use Illuminate\Log\Events\MessageLogged;
 use Illuminate\Queue\Events\JobFailed;
 use Illuminate\Queue\Events\JobProcessed;
 use Illuminate\Queue\Events\JobProcessing;
@@ -78,19 +85,34 @@ class DozorServiceProvider extends ServiceProvider
             TraceRequest::class,
             static fn(Application $app) => new TraceRequest($app->make(CoreContract::class))
         );
+        $this->app->singleton(
+            HttpWatcher::class,
+            static fn(Application $app) => new HttpWatcher($app->make(CoreContract::class))
+        );
+        $this->app->singleton(
+            LogWatcher::class,
+            static fn(Application $app) => new LogWatcher($app->make(CoreContract::class))
+        );
+        $this->app->singleton(ApplicationEventWatcher::class, static function (Application $app): ApplicationEventWatcher {
+            /** @var array<string, mixed> $config */
+            $config = $app->make(Repository::class)->get('dozor', []);
+            $prefixes = array_values(array_filter(array_map('trim', (array) Arr::get($config, 'instrumentation.event_prefixes', []))));
+            $ignoredEvents = array_values(array_filter(array_map('trim', (array) Arr::get($config, 'instrumentation.event_ignore', []))));
+
+            return new ApplicationEventWatcher(
+                $app->make(CoreContract::class),
+                $prefixes,
+                $ignoredEvents,
+            );
+        });
         $this->app->singleton(AgentCommand::class, function (Application $app) {
             /** @var array<string, mixed> $config */
             $config = $app['config']->get('dozor', []);
             $token = Arr::get($config, 'token');
-            $server = Arr::get($config, 'server');
-            $ingestUri = Arr::get($config, 'ingest.uri');
-            $storePath = Arr::get($config, 'agent.store_path', storage_path('app/dozor'));
 
             return new AgentCommand(
                 token: is_string($token) ? $token : null,
-                server: is_string($server) ? $server : null,
-                ingestUri: is_string($ingestUri) ? $ingestUri : null,
-                storePath: is_string($storePath) ? $storePath : null,
+                config: $config,
             );
         });
     }
@@ -127,10 +149,41 @@ class DozorServiceProvider extends ServiceProvider
             return;
         }
 
+        $outgoingHttpEnabled = (bool) config('dozor.instrumentation.outgoing_http', true);
+        $captureLogsEnabled = (bool) config('dozor.instrumentation.capture_logs', true);
+        $captureEventsEnabled = (bool) config('dozor.instrumentation.capture_events', true);
+
+        logger()->info('dozor.instrumentation.hook_state', [
+            'hook' => 'outgoing_http',
+            'enabled' => $outgoingHttpEnabled,
+        ]);
+        logger()->info('dozor.instrumentation.hook_state', [
+            'hook' => 'logs',
+            'enabled' => $captureLogsEnabled,
+        ]);
+        logger()->info('dozor.instrumentation.hook_state', [
+            'hook' => 'events',
+            'enabled' => $captureEventsEnabled,
+        ]);
+
         Event::listen(QueryExecuted::class, $this->app->make(QueryWatcher::class));
         Event::listen(JobProcessing::class, [$this->app->make(QueueWatcher::class), 'started']);
         Event::listen(JobProcessed::class, [$this->app->make(QueueWatcher::class), 'finished']);
         Event::listen(JobFailed::class, [$this->app->make(QueueWatcher::class), 'finished']);
+
+        if ($outgoingHttpEnabled) {
+            Event::listen(RequestSending::class, [$this->app->make(HttpWatcher::class), 'requestSending']);
+            Event::listen(ResponseReceived::class, [$this->app->make(HttpWatcher::class), 'responseReceived']);
+            Event::listen(ConnectionFailed::class, [$this->app->make(HttpWatcher::class), 'connectionFailed']);
+        }
+
+        if ($captureLogsEnabled) {
+            Event::listen(MessageLogged::class, $this->app->make(LogWatcher::class));
+        }
+
+        if ($captureEventsEnabled) {
+            Event::listen('*', [$this->app->make(ApplicationEventWatcher::class), 'handle']);
+        }
 
         $this->callAfterResolving(Router::class, function (Router $router): void {
             $router->aliasMiddleware('dozor.trace', TraceRequest::class);

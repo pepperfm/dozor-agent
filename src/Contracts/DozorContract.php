@@ -36,6 +36,21 @@ interface DozorContract
      */
     public function recordException(Throwable $e, array $context = []): void;
 
+    /**
+     * @param array<string, mixed> $payload
+     */
+    public function recordOutgoingHttp(array $payload): void;
+
+    /**
+     * @param array<string, mixed> $context
+     */
+    public function recordLogMessage(string $level, string $message, array $context = []): void;
+
+    /**
+     * @param array<string, mixed> $payload
+     */
+    public function recordApplicationEvent(string $eventName, array $payload = []): void;
+
     public function digest(): void;
 
     public function ping(): void;

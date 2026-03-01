@@ -24,6 +24,8 @@ class Dozor implements DozorContract
      */
     private array $jobStartedAt = [];
 
+    private bool $capturingLogs = false;
+
     /**
      * @param array<string, mixed> $config
      */
@@ -46,6 +48,7 @@ class Dozor implements DozorContract
     public function beginRequest(Request $request): TraceContext
     {
         $traceId = $this->makeTraceId();
+        $route = $request->route();
 
         return $this->currentTrace = new TraceContext(
             traceId: $traceId,
@@ -54,8 +57,10 @@ class Dozor implements DozorContract
                 'method' => $request->method(),
                 'url' => $request->fullUrl(),
                 'path' => '/' . ltrim($request->path(), '/'),
-                'route_name' => $request->route()?->getName(),
-                'route_uri' => $request->route()?->uri(),
+                'route_name' => $route?->getName(),
+                'route_uri' => $route?->uri(),
+                'controller' => $route?->getActionName(),
+                'middleware' => $route?->gatherMiddleware() ?? [],
                 'ip' => $request->ip(),
                 'user_id' => $request->user()?->getAuthIdentifier(),
                 'user_agent' => $request->userAgent(),
@@ -203,6 +208,82 @@ class Dozor implements DozorContract
         ], immediate: true);
     }
 
+    public function recordOutgoingHttp(array $payload): void
+    {
+        if (!$this->enabled() || $this->config('filtering.ignore_outgoing_http', false)) {
+            return;
+        }
+
+        logger()->debug('dozor.instrumentation.outgoing_http.recorded', [
+            'trace_id' => $this->currentTrace?->traceId,
+            'method' => Arr::get($payload, 'method'),
+            'url' => Arr::get($payload, 'url'),
+            'status_code' => Arr::get($payload, 'status_code'),
+            'failed' => Arr::get($payload, 'failed', false),
+        ]);
+
+        $this->report([
+            'type' => 'outgoing_http',
+            'trace_id' => $this->currentTrace?->traceId ?? $this->makeTraceId(),
+            'happened_at' => $this->isoTime(),
+            'app' => $this->config('app_name'),
+            'environment' => $this->config('environment'),
+            'server' => $this->config('server'),
+            'payload' => $payload,
+        ]);
+    }
+
+    public function recordLogMessage(string $level, string $message, array $context = []): void
+    {
+        if (!$this->enabled() || !$this->config('instrumentation.capture_logs', true)) {
+            return;
+        }
+
+        if ($this->capturingLogs || str_starts_with($message, 'dozor.')) {
+            return;
+        }
+
+        $this->capturingLogs = true;
+
+        try {
+            $this->report([
+                'type' => 'log',
+                'trace_id' => $this->currentTrace?->traceId ?? $this->makeTraceId(),
+                'happened_at' => $this->isoTime(),
+                'app' => $this->config('app_name'),
+                'environment' => $this->config('environment'),
+                'server' => $this->config('server'),
+                'payload' => [
+                    'level' => $level,
+                    'message' => mb_substr($message, 0, 3000),
+                    'context' => $this->sanitizePayload($context),
+                ],
+            ]);
+        } finally {
+            $this->capturingLogs = false;
+        }
+    }
+
+    public function recordApplicationEvent(string $eventName, array $payload = []): void
+    {
+        if (!$this->enabled() || !$this->config('instrumentation.capture_events', true)) {
+            return;
+        }
+
+        $this->report([
+            'type' => 'event',
+            'trace_id' => $this->currentTrace?->traceId ?? $this->makeTraceId(),
+            'happened_at' => $this->isoTime(),
+            'app' => $this->config('app_name'),
+            'environment' => $this->config('environment'),
+            'server' => $this->config('server'),
+            'payload' => [
+                'name' => $eventName,
+                'data' => $payload,
+            ],
+        ]);
+    }
+
     /**
      * @param array<string, mixed> $record
      */
@@ -211,6 +292,10 @@ class Dozor implements DozorContract
         if (!$this->enabled()) {
             return;
         }
+
+        $record['deployment'] ??= $this->config('deployment');
+        $record['release'] ??= $this->config('release', $this->config('deployment'));
+
         if ($immediate) {
             $this->ingest->writeNow($record);
 
@@ -232,7 +317,7 @@ class Dozor implements DozorContract
 
     public function makeTraceId(): string
     {
-        return str()->uuid()->toString();
+        return str()->ulid()->toString();
     }
 
     /**
@@ -242,10 +327,15 @@ class Dozor implements DozorContract
      */
     private function sanitizePayload(array $payload): array
     {
-        $fields = array_map('trim', (array) $this->config('redact_payload_fields', []));
-        foreach ($fields as $field) {
-            if ($field !== '' && array_key_exists($field, $payload)) {
-                $payload[$field] = '[REDACTED]';
+        $fields = array_values(array_filter(array_map('trim', (array) $this->config('redact_payload_fields', []))));
+
+        foreach ($payload as $key => $value) {
+            if (is_array($value)) {
+                $payload[$key] = $this->sanitizePayload($value);
+            }
+
+            if (is_string($key) && in_array($key, $fields, true)) {
+                $payload[$key] = '[REDACTED]';
             }
         }
 
