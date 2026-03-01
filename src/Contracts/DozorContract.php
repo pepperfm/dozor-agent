@@ -22,7 +22,7 @@ interface DozorContract
         Request $request,
         mixed $response,
         float $startedAt,
-        ?Throwable $exception = null
+        ?Throwable $e = null
     ): void;
 
     public function recordQuery(QueryExecuted $event): void;
@@ -34,7 +34,7 @@ interface DozorContract
     /**
      * @param array<string, mixed> $context
      */
-    public function recordException(Throwable $exception, array $context = []): void;
+    public function recordException(Throwable $e, array $context = []): void;
 
     public function digest(): void;
 

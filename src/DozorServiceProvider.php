@@ -38,7 +38,7 @@ class DozorServiceProvider extends ServiceProvider
                 transmitTo: (string) Arr::get($config, 'ingest.uri', '127.0.0.1:4815'),
                 connectionTimeout: (float) Arr::get($config, 'ingest.connection_timeout', 0.5),
                 timeout: (float) Arr::get($config, 'ingest.timeout', 0.5),
-                streamFactory: \Closure::fromCallable(new SocketStreamFactory()),
+                streamFactory: new SocketStreamFactory()(...),
                 buffer: new RecordsBuffer((int) Arr::get($config, 'ingest.event_buffer', 500)),
                 tokenHash: $tokenHash,
             );
@@ -53,13 +53,13 @@ class DozorServiceProvider extends ServiceProvider
                     ingest: $app->make(IngestContract::class),
                     config: $config,
                 );
-            } catch (Throwable $exception) {
+            } catch (Throwable $e) {
                 logger()->error('dozor.package.core_boot_failed', [
-                    'class' => $exception::class,
-                    'message' => $exception->getMessage(),
+                    'class' => $e::class,
+                    'message' => $e->getMessage(),
                 ]);
 
-                throw $exception;
+                throw $e;
             }
         });
 
@@ -114,13 +114,13 @@ class DozorServiceProvider extends ServiceProvider
         try {
             /** @var CoreContract $core */
             $core = $this->app->make(CoreContract::class);
-        } catch (Throwable $exception) {
+        } catch (Throwable $e) {
             logger()->error('dozor.package.discovery_failed', [
-                'class' => $exception::class,
-                'message' => $exception->getMessage(),
+                'class' => $e::class,
+                'message' => $e->getMessage(),
             ]);
 
-            throw $exception;
+            throw $e;
         }
 
         if (!$core->enabled()) {
@@ -142,11 +142,11 @@ class DozorServiceProvider extends ServiceProvider
             foreach ((array) config('dozor.http.groups', ['web', 'api']) as $group) {
                 try {
                     $router->pushMiddlewareToGroup($group, TraceRequest::class);
-                } catch (Throwable $exception) {
+                } catch (Throwable $e) {
                     logger()->debug('dozor.package.middleware_attach_skipped', [
                         'group' => $group,
-                        'class' => $exception::class,
-                        'message' => $exception->getMessage(),
+                        'class' => $e::class,
+                        'message' => $e->getMessage(),
                     ]);
                 }
             }

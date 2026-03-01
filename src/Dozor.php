@@ -67,7 +67,7 @@ class Dozor implements DozorContract
         Request $request,
         mixed $response,
         float $startedAt,
-        ?Throwable $exception = null
+        ?Throwable $e = null
     ): void {
         if (!$this->enabled()) {
             return;
@@ -75,7 +75,7 @@ class Dozor implements DozorContract
 
         $traceId = $this->currentTrace?->traceId ?? $this->makeTraceId();
         $durationMs = round((microtime(true) - $startedAt) * 1000, 2);
-        $status = method_exists($response, 'getStatusCode') ? $response->getStatusCode() : ($exception ? 500 : 200);
+        $status = method_exists($response, 'getStatusCode') ? $response->getStatusCode() : ($e ? 500 : 200);
 
         $payload = array_merge($this->currentTrace?->requestMeta ?? [], [
             'status' => $status,
@@ -88,9 +88,9 @@ class Dozor implements DozorContract
             $payload['request_payload'] = $this->sanitizePayload($request->all());
         }
 
-        if ($exception) {
-            $payload['exception_class'] = $exception::class;
-            $payload['exception_message'] = $exception->getMessage();
+        if ($e) {
+            $payload['exception_class'] = $e::class;
+            $payload['exception_message'] = $e->getMessage();
         }
 
         $this->report([
