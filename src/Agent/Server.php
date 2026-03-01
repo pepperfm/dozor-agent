@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Dozor\Agent;
 
 use Dozor\Agent\Transport\HostedIngestTransport;
+use Dozor\Telemetry\AgentRuntimeState;
 use Dozor\Tracing\TraceBatchTransformer;
 use Symfony\Component\Console\Output\OutputInterface;
 use Throwable;
@@ -47,6 +48,7 @@ final class Server
         private readonly int $shipMaxBatchesPerFlush = 10,
         private readonly float $shipFlushIntervalSeconds = 2.0,
         private readonly float $heartbeatIntervalSeconds = 15.0,
+        private readonly ?AgentRuntimeState $runtimeState = null,
     ) {
     }
 
@@ -56,6 +58,14 @@ final class Server
         $server = @stream_socket_server($address, $errorCode, $errorMessage);
 
         if ($server === false) {
+            logger()->error('dozor.agent.lifecycle.fatal_exit', [
+                'reason' => 'listen_socket_start_failed',
+                'listen_on' => $this->listenOn,
+                'address' => $address,
+                'error_code' => $errorCode,
+                'error_message' => $errorMessage,
+            ]);
+
             throw new \RuntimeException(sprintf('Unable to start Dozor agent on %s [%s:%s]', $address, $errorCode, $errorMessage));
         }
 
@@ -75,6 +85,13 @@ final class Server
             'environment' => $this->environment,
             'shipper_enabled' => $this->shipper?->enabled() ?? false,
         ]);
+        $this->runtimeState?->markStarted(
+            listenOn: $this->listenOn,
+            serverName: $this->serverName,
+            appName: $this->appName,
+            environment: $this->environment,
+            shipperEnabled: $this->shipper?->enabled() ?? false,
+        );
 
         while ($this->running) {
             $client = @stream_socket_accept($server, 1);
@@ -109,6 +126,7 @@ final class Server
             'listen_on' => $this->listenOn,
             'server' => $this->serverName,
         ]);
+        $this->runtimeState?->markStopped((int) max(0, round(microtime(true) - $this->startedAt)));
 
         fclose_safely($server);
     }
@@ -141,6 +159,7 @@ final class Server
         logger()->info('dozor.agent.lifecycle.shutdown_requested', [
             'signal' => $signal,
         ]);
+        $this->runtimeState?->markShutdownRequested($signal);
 
         $this->line("Shutdown requested by {$signal}. Draining queued batches...");
     }
@@ -295,12 +314,22 @@ final class Server
         $this->lastFlushAt = $now;
         $maxBatches = $force ? max($this->shipMaxBatchesPerFlush, 1000) : $this->shipMaxBatchesPerFlush;
         $shipper = $this->shipper;
+        $queueDepth = $this->spoolQueue->queuedBatchesCount();
+        $failedQueueDepth = $this->spoolQueue->failedBatchesCount();
 
         logger()->info('dozor.agent.shipper.flush_triggered', [
             'force' => $force,
             'max_batches' => $maxBatches,
             'flush_interval_seconds' => $this->shipFlushIntervalSeconds,
+            'queue_depth' => $queueDepth,
+            'failed_queue_depth' => $failedQueueDepth,
         ]);
+        $this->runtimeState?->markFlush(
+            force: $force,
+            maxBatches: $maxBatches,
+            queueDepth: $queueDepth,
+            failedQueueDepth: $failedQueueDepth,
+        );
 
         $this->spoolQueue->drain(
             static function (array $payload, string $batchId, int $attempt) use ($shipper): bool {
@@ -328,6 +357,9 @@ final class Server
         }
 
         $this->lastHeartbeatAt = $now;
+        $queueDepth = $this->spoolQueue->queuedBatchesCount();
+        $failedQueueDepth = $this->spoolQueue->failedBatchesCount();
+        $uptimeSeconds = (int) max(0, round($now - $this->startedAt));
 
         $heartbeatRecord = [
             'type' => 'heartbeat',
@@ -339,9 +371,9 @@ final class Server
             'release' => $this->release,
             'payload' => [
                 'status' => 'healthy',
-                'uptime_seconds' => (int) max(0, round($now - $this->startedAt)),
-                'queue_depth' => $this->spoolQueue->queuedBatchesCount(),
-                'failed_queue_depth' => $this->spoolQueue->failedBatchesCount(),
+                'uptime_seconds' => $uptimeSeconds,
+                'queue_depth' => $queueDepth,
+                'failed_queue_depth' => $failedQueueDepth,
                 'memory_peak_bytes' => memory_get_peak_usage(true),
             ],
         ];
@@ -352,6 +384,11 @@ final class Server
             'failed_queue_depth' => $heartbeatRecord['payload']['failed_queue_depth'],
             'uptime_seconds' => $heartbeatRecord['payload']['uptime_seconds'],
         ]);
+        $this->runtimeState?->markHeartbeat(
+            queueDepth: $queueDepth,
+            failedQueueDepth: $failedQueueDepth,
+            uptimeSeconds: $uptimeSeconds,
+        );
 
         $this->enqueueRecords([$heartbeatRecord]);
     }

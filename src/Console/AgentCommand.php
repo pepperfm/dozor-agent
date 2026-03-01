@@ -8,10 +8,12 @@ use Illuminate\Console\Command;
 use Dozor\Agent\Server;
 use Dozor\Agent\SpoolQueue;
 use Dozor\Agent\Transport\HostedIngestTransport;
+use Dozor\Telemetry\AgentRuntimeState;
 use Dozor\Tracing\TraceBatchTransformer;
 use Illuminate\Support\Arr;
 use SensitiveParameter;
 use Symfony\Component\Console\Attribute\AsCommand;
+use Throwable;
 
 #[AsCommand(name: 'dozor:agent', description: 'Run the Dozor local ingest agent.')]
 final class AgentCommand extends Command
@@ -35,6 +37,7 @@ final class AgentCommand extends Command
         {--ship-retry-backoff-ms= : HTTP retry linear backoff in milliseconds}
         {--ship-connection-timeout= : Hosted ingest connection timeout}
         {--ship-timeout= : Hosted ingest request timeout}
+        {--telemetry-state-path= : Runtime telemetry state file path}
         {--heartbeat-interval-seconds= : Agent heartbeat emission interval in seconds}
         {--trace-max-spans-per-trace= : Maximum spans emitted per transformed trace}
         {--server=}
@@ -79,10 +82,12 @@ final class AgentCommand extends Command
         $shipRetryBackoffMs = $this->intOption('ship-retry-backoff-ms', (int) Arr::get($this->config, 'agent.shipper.retry_backoff_ms', 250));
         $shipConnectionTimeout = $this->floatOption('ship-connection-timeout', (float) Arr::get($this->config, 'agent.shipper.connection_timeout', 2.0));
         $shipTimeout = $this->floatOption('ship-timeout', (float) Arr::get($this->config, 'agent.shipper.timeout', 5.0));
+        $telemetryStatePath = $this->stringOption('telemetry-state-path', (string) Arr::get($this->config, 'agent.telemetry.state_path', $storePath . DIRECTORY_SEPARATOR . 'runtime-state.json'));
         $heartbeatIntervalSeconds = $this->floatOption('heartbeat-interval-seconds', (float) Arr::get($this->config, 'agent.tracing.heartbeat_interval_seconds', 15.0));
         $traceMaxSpansPerTrace = $this->intOption('trace-max-spans-per-trace', (int) Arr::get($this->config, 'agent.tracing.max_spans_per_trace', 200));
         $tokenHash = substr(hash('xxh128', (string) $this->token), 0, 7);
         $silent = (bool) $this->option('silent');
+        $runtimeState = new AgentRuntimeState($telemetryStatePath);
 
         $spoolQueue = null;
         $shipper = null;
@@ -94,6 +99,7 @@ final class AgentCommand extends Command
                 maxAttemptsPerBatch: $shipMaxAttempts,
                 queueBackoffBaseMs: $queueBackoffBaseMs,
                 queueBackoffCapMs: $queueBackoffCapMs,
+                runtimeState: $runtimeState,
             );
 
             $shipper = new HostedIngestTransport(
@@ -103,6 +109,7 @@ final class AgentCommand extends Command
                 timeout: $shipTimeout,
                 retryAttempts: $shipRetryAttempts,
                 retryBackoffMs: $shipRetryBackoffMs,
+                runtimeState: $runtimeState,
             );
 
             $traceBatchTransformer = new TraceBatchTransformer(
@@ -120,11 +127,13 @@ final class AgentCommand extends Command
                 'max_batches_per_flush' => $shipMaxBatchesPerFlush,
                 'trace_max_spans_per_trace' => $traceMaxSpansPerTrace,
                 'heartbeat_interval_seconds' => $heartbeatIntervalSeconds,
+                'telemetry_state_path' => $telemetryStatePath,
             ]);
         } else {
             logger()->warning('dozor.agent.shipper.disabled', [
                 'shipper_enabled' => $shipperEnabled,
                 'ingest_url_present' => $hostedIngestUrl !== '',
+                'telemetry_state_path' => $telemetryStatePath,
             ]);
         }
 
@@ -144,9 +153,24 @@ final class AgentCommand extends Command
             shipMaxBatchesPerFlush: max(1, $shipMaxBatchesPerFlush),
             shipFlushIntervalSeconds: max(0.1, $shipFlushIntervalSeconds),
             heartbeatIntervalSeconds: max(1.0, $heartbeatIntervalSeconds),
+            runtimeState: $runtimeState,
         );
 
-        $server->run();
+        try {
+            $server->run();
+        } catch (Throwable $e) {
+            logger()->error('dozor.agent.lifecycle.fatal_exit', [
+                'reason' => 'server_run_failed',
+                'class' => $e::class,
+                'message' => $e->getMessage(),
+                'listen_on' => $listenOn,
+                'server' => $serverName,
+            ]);
+
+            $this->components->error($e->getMessage());
+
+            return self::FAILURE;
+        }
 
         return self::SUCCESS;
     }

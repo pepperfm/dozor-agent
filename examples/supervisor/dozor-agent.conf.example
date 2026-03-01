@@ -1,0 +1,18 @@
+[program:dozor-agent]
+process_name=%(program_name)s_%(process_num)02d
+command=/usr/bin/php /var/www/app/artisan dozor:agent --listen-on=127.0.0.1:4815 --store-path=/var/www/app/storage/app/dozor --spool-path=/var/www/app/storage/app/dozor/spool --telemetry-state-path=/var/www/app/storage/app/dozor/runtime-state.json --silent
+directory=/var/www/app
+user=www-data
+autostart=true
+autorestart=true
+startsecs=5
+stopasgroup=true
+killasgroup=true
+stopsignal=TERM
+stopwaitsecs=3600
+numprocs=1
+redirect_stderr=true
+stdout_logfile=/var/log/supervisor/dozor-agent.log
+stdout_logfile_maxbytes=50MB
+stdout_logfile_backups=5
+environment=APP_ENV=production,DOZOR_ENABLED=true,DOZOR_AGENT_SHIPPER_ENABLED=true

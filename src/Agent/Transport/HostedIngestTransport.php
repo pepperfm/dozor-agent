@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Dozor\Agent\Transport;
 
+use Dozor\Telemetry\AgentRuntimeState;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\RequestException;
@@ -25,6 +26,7 @@ final readonly class HostedIngestTransport
         private float $timeout,
         private int $retryAttempts,
         private int $retryBackoffMs,
+        private ?AgentRuntimeState $runtimeState = null,
     ) {
     }
 
@@ -39,6 +41,8 @@ final readonly class HostedIngestTransport
     public function ship(array $payload, string $batchId, int $attempt): bool
     {
         if (!$this->enabled()) {
+            $this->runtimeState?->incrementFailedUploads($batchId, $attempt, 'ingest_url_missing');
+
             logger()->error('dozor.agent.shipper.upload_failed', [
                 'batch_id' => $batchId,
                 'attempt' => $attempt,
@@ -100,8 +104,16 @@ final readonly class HostedIngestTransport
                 ->post($this->ingestUrl, $payload);
 
             if ($response->successful()) {
+                $this->runtimeState?->markUploadSuccess($batchId, $attempt, $recordsCount);
+
                 return true;
             }
+
+            $this->runtimeState?->incrementFailedUploads(
+                $batchId,
+                $attempt,
+                'http_status_' . $response->status(),
+            );
 
             logger()->error('dozor.agent.shipper.upload_failed', [
                 'batch_id' => $batchId,
@@ -113,6 +125,8 @@ final readonly class HostedIngestTransport
 
             return false;
         } catch (ConnectionException $e) {
+            $this->runtimeState?->incrementFailedUploads($batchId, $attempt, 'connection_exception');
+
             logger()->error('dozor.agent.shipper.upstream_connection_failed', [
                 'batch_id' => $batchId,
                 'attempt' => $attempt,
@@ -123,6 +137,8 @@ final readonly class HostedIngestTransport
 
             return false;
         } catch (\Throwable $e) {
+            $this->runtimeState?->incrementFailedUploads($batchId, $attempt, 'unexpected_exception');
+
             logger()->error('dozor.agent.shipper.upload_failed', [
                 'batch_id' => $batchId,
                 'attempt' => $attempt,
@@ -140,6 +156,11 @@ final readonly class HostedIngestTransport
      */
     private function extractRecordsCount(array $payload): int
     {
+        $traces = Arr::get($payload, 'traces', []);
+        if (is_array($traces)) {
+            return count($traces);
+        }
+
         $records = Arr::get($payload, 'records', []);
 
         return is_array($records) ? count($records) : 0;

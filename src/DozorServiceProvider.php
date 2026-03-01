@@ -87,7 +87,15 @@ class DozorServiceProvider extends ServiceProvider
         );
         $this->app->singleton(
             HttpWatcher::class,
-            static fn(Application $app) => new HttpWatcher($app->make(CoreContract::class))
+            static function (Application $app): HttpWatcher {
+                /** @var array<string, mixed> $config */
+                $config = $app->make(Repository::class)->get('dozor', []);
+
+                return new HttpWatcher(
+                    $app->make(CoreContract::class),
+                    (bool) Arr::get($config, 'instrumentation.capture_outgoing_http_headers', false),
+                );
+            }
         );
         $this->app->singleton(
             LogWatcher::class,

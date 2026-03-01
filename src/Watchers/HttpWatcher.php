@@ -21,7 +21,10 @@ final class HttpWatcher
      */
     private array $startedAt = [];
 
-    public function __construct(private readonly DozorContract $core)
+    public function __construct(
+        private readonly DozorContract $core,
+        private readonly bool $captureHeaders = false,
+    )
     {
     }
 
@@ -58,6 +61,8 @@ final class HttpWatcher
             'status_code' => $event->response->status(),
             'duration_ms' => $durationMs !== null ? max(1, (int) round($durationMs)) : null,
             'failed' => !$event->response->successful(),
+            'request_headers' => $this->captureHeaders ? $event->request->headers() : [],
+            'response_headers' => $this->captureHeaders ? $event->response->headers() : [],
         ];
 
         $this->capture($payload, phase: 'response_received');
@@ -78,6 +83,7 @@ final class HttpWatcher
             'failed' => true,
             'error_class' => $event->exception::class,
             'error_message' => $event->exception->getMessage(),
+            'request_headers' => $this->captureHeaders ? $event->request->headers() : [],
         ];
 
         $this->capture($payload, phase: 'connection_failed');

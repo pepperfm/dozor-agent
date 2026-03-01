@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Dozor\Agent;
 
+use Dozor\Telemetry\AgentRuntimeState;
 use Illuminate\Support\Arr;
 use RuntimeException;
 use Throwable;
@@ -28,6 +29,7 @@ final class SpoolQueue
         private readonly int $maxAttemptsPerBatch = 8,
         private readonly int $queueBackoffBaseMs = 500,
         private readonly int $queueBackoffCapMs = 30_000,
+        private readonly ?AgentRuntimeState $runtimeState = null,
     ) {
     }
 
@@ -268,6 +270,8 @@ final class SpoolQueue
         );
 
         if (@rename($file, $target)) {
+            $this->runtimeState?->incrementDroppedBatches($batchId, $reason);
+
             if ($reason === 'max-attempts') {
                 logger()->warning('dozor.agent.shipper.batch_moved_to_failed', [
                     'batch_id' => $batchId,
@@ -299,6 +303,11 @@ final class SpoolQueue
      */
     private function recordsCount(array $payload): int
     {
+        $traces = Arr::get($payload, 'traces', []);
+        if (is_array($traces)) {
+            return count($traces);
+        }
+
         $records = Arr::get($payload, 'records', []);
 
         return is_array($records) ? count($records) : 0;

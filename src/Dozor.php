@@ -7,6 +7,9 @@ namespace Dozor;
 use Dozor\Contracts\DozorContract;
 use Dozor\Contracts\IngestContract;
 use Dozor\Context\TraceContext;
+use Dozor\Filters\RequestFilter;
+use Dozor\Redaction\PayloadRedactor;
+use Dozor\Sampling\DeterministicSampler;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Http\Request;
 use Illuminate\Queue\Events\JobFailed;
@@ -14,6 +17,15 @@ use Illuminate\Queue\Events\JobProcessed;
 use Illuminate\Queue\Events\JobProcessing;
 use Illuminate\Support\Arr;
 use Throwable;
+
+use function in_array;
+use function is_array;
+use function is_numeric;
+use function is_string;
+use function max;
+use function mb_substr;
+use function round;
+use function str_starts_with;
 
 class Dozor implements DozorContract
 {
@@ -26,6 +38,16 @@ class Dozor implements DozorContract
 
     private bool $capturingLogs = false;
 
+    private bool $currentRequestSuppressed = false;
+
+    private string $currentRequestSuppressedReason = '';
+
+    private DeterministicSampler $sampler;
+
+    private PayloadRedactor $redactor;
+
+    private RequestFilter $requestFilter;
+
     /**
      * @param array<string, mixed> $config
      */
@@ -33,6 +55,34 @@ class Dozor implements DozorContract
         private readonly IngestContract $ingest,
         private readonly array $config,
     ) {
+        $this->sampler = new DeterministicSampler((array) Arr::get($this->config, 'sampling', []));
+        $this->redactor = new PayloadRedactor(
+            payloadFields: (array) Arr::get($this->config, 'redact_payload_fields', []),
+            headerFields: (array) Arr::get($this->config, 'redact_headers', []),
+            maxPayloadBytes: (int) Arr::get($this->config, 'limits.max_payload_bytes', 16384),
+            truncatePreviewBytes: (int) Arr::get($this->config, 'limits.truncate_preview_bytes', 2048),
+            oversizeBehavior: (string) Arr::get($this->config, 'limits.oversize_behavior', 'drop'),
+        );
+        $this->requestFilter = new RequestFilter((array) Arr::get($this->config, 'filtering.request', []));
+
+        logger()->info('dozor.security.profile', [
+            'capture_request_payload' => $this->config('capture_request_payload', false),
+            'capture_exception_source_code' => $this->config('capture_exception_source_code', false),
+            'capture_logs' => $this->config('instrumentation.capture_logs', false),
+            'capture_events' => $this->config('instrumentation.capture_events', false),
+            'limits' => [
+                'max_payload_bytes' => (int) Arr::get($this->config, 'limits.max_payload_bytes', 16384),
+                'oversize_behavior' => Arr::get($this->config, 'limits.oversize_behavior', 'drop'),
+            ],
+            'sampling' => [
+                'requests' => $this->sampler->resolveRate('requests'),
+                'jobs' => $this->sampler->resolveRate('jobs'),
+                'exceptions' => $this->sampler->resolveRate('exceptions'),
+                'outgoing_http' => $this->sampler->resolveRate('outgoing_http'),
+                'logs' => $this->sampler->resolveRate('logs'),
+                'events' => $this->sampler->resolveRate('events'),
+            ],
+        ]);
     }
 
     public function enabled(): bool
@@ -49,22 +99,51 @@ class Dozor implements DozorContract
     {
         $traceId = $this->makeTraceId();
         $route = $request->route();
+        $this->currentRequestSuppressed = false;
+        $this->currentRequestSuppressedReason = '';
+
+        if ($this->requestFilter->shouldIgnoreRequest($request)) {
+            $this->currentRequestSuppressed = true;
+            $this->currentRequestSuppressedReason = 'filter';
+        } else {
+            $samplingKey = $request->method() . '|' . $request->path() . '|' . ($request->ip() ?? 'unknown') . '|' . $traceId;
+            if (!$this->sampler->shouldSample('requests', $samplingKey)) {
+                $this->currentRequestSuppressed = true;
+                $this->currentRequestSuppressedReason = 'sampling';
+            }
+        }
+
+        logger()->debug('dozor.sampling.request_decision', [
+            'trace_id' => $traceId,
+            'suppressed' => $this->currentRequestSuppressed,
+            'reason' => $this->currentRequestSuppressedReason,
+            'path' => $request->path(),
+            'method' => $request->method(),
+            'sample_rate' => $this->sampler->resolveRate('requests'),
+        ]);
+
+        $requestMeta = [
+            'method' => $request->method(),
+            'url' => $request->fullUrl(),
+            'path' => '/' . ltrim($request->path(), '/'),
+            'route_name' => $route?->getName(),
+            'route_uri' => $route?->uri(),
+            'controller' => $route?->getActionName(),
+            'middleware' => $route?->gatherMiddleware() ?? [],
+            'ip' => $request->ip(),
+            'user_id' => $request->user()?->getAuthIdentifier(),
+            'user_agent' => $request->userAgent(),
+            'sampled' => !$this->currentRequestSuppressed,
+        ];
+
+        if ((bool) $this->config('instrumentation.capture_request_headers', false)) {
+            $requestMeta['headers'] = $this->redactor->redactHeaders($request->headers->all());
+        }
 
         return $this->currentTrace = new TraceContext(
             traceId: $traceId,
             startedAt: microtime(true),
-            requestMeta: [
-                'method' => $request->method(),
-                'url' => $request->fullUrl(),
-                'path' => '/' . ltrim($request->path(), '/'),
-                'route_name' => $route?->getName(),
-                'route_uri' => $route?->uri(),
-                'controller' => $route?->getActionName(),
-                'middleware' => $route?->gatherMiddleware() ?? [],
-                'ip' => $request->ip(),
-                'user_id' => $request->user()?->getAuthIdentifier(),
-                'user_agent' => $request->userAgent(),
-            ],
+            requestMeta: $requestMeta,
         );
     }
 
@@ -75,6 +154,20 @@ class Dozor implements DozorContract
         ?Throwable $e = null
     ): void {
         if (!$this->enabled()) {
+            return;
+        }
+
+        if ($this->currentRequestSuppressed) {
+            logger()->debug('dozor.sampling.request_dropped', [
+                'trace_id' => $this->currentTrace?->traceId,
+                'reason' => $this->currentRequestSuppressedReason,
+                'path' => $request->path(),
+            ]);
+
+            $this->currentTrace = null;
+            $this->currentRequestSuppressed = false;
+            $this->currentRequestSuppressedReason = '';
+
             return;
         }
 
@@ -89,7 +182,7 @@ class Dozor implements DozorContract
             'memory_peak_bytes' => memory_get_peak_usage(true),
         ]);
 
-        if ($this->config('capture_request_payload', false) && !$this->config('filtering.ignore_request_payload', false)) {
+        if ((bool) $this->config('capture_request_payload', false) && !$this->config('filtering.ignore_request_payload', false)) {
             $payload['request_payload'] = $this->sanitizePayload($request->all());
         }
 
@@ -105,28 +198,48 @@ class Dozor implements DozorContract
             'app' => $this->config('app_name'),
             'environment' => $this->config('environment'),
             'server' => $this->config('server'),
-            'deployment' => $this->config('deployment'),
             'payload' => $payload,
         ]);
 
         $this->currentTrace = null;
+        $this->currentRequestSuppressed = false;
+        $this->currentRequestSuppressedReason = '';
     }
 
     public function recordQuery(QueryExecuted $event): void
     {
-        if (!$this->enabled() || $this->config('filtering.ignore_queries', false)) {
+        if (
+            !$this->enabled()
+            || $this->config('filtering.ignore_queries', false)
+            || $this->currentRequestSuppressed
+        ) {
             return;
         }
 
+        $traceId = $this->currentTrace?->traceId ?? $this->makeTraceId();
+        $samplingKey = $traceId . '|' . $event->connectionName . '|' . $event->sql;
+
+        if (!$this->sampler->shouldSample('queries', $samplingKey)) {
+            logger()->debug('dozor.sampling.query_dropped', [
+                'trace_id' => $traceId,
+                'sample_rate' => $this->sampler->resolveRate('queries'),
+            ]);
+
+            return;
+        }
+
+        $captureSql = (bool) $this->config('filtering.capture_query_sql', false);
+        $sqlMaxLength = max(64, (int) $this->config('limits.max_sql_length', 2000));
+
         $this->report([
             'type' => 'query',
-            'trace_id' => $this->currentTrace?->traceId ?? $this->makeTraceId(),
+            'trace_id' => $traceId,
             'happened_at' => $this->isoTime(),
             'app' => $this->config('app_name'),
             'environment' => $this->config('environment'),
             'server' => $this->config('server'),
             'payload' => [
-                'sql' => $event->sql,
+                'sql' => $captureSql ? mb_substr($event->sql, 0, $sqlMaxLength) : '[REDACTED_SQL]',
                 'time_ms' => (float) $event->time,
                 'connection' => $event->connectionName,
                 'bindings_count' => count($event->bindings),
@@ -149,13 +262,26 @@ class Dozor implements DozorContract
             return;
         }
 
+        $traceId = $this->currentTrace?->traceId ?? $this->makeTraceId();
+        $samplingKey = $traceId . '|' . $event->connectionName . '|' . $event->job->resolveName();
+
+        if (!$this->sampler->shouldSample('jobs', $samplingKey)) {
+            logger()->debug('dozor.sampling.job_dropped', [
+                'trace_id' => $traceId,
+                'job' => $event->job->resolveName(),
+                'sample_rate' => $this->sampler->resolveRate('jobs'),
+            ]);
+
+            return;
+        }
+
         $key = $this->jobKey($event);
         $startedAt = $this->jobStartedAt[$key] ?? microtime(true);
         unset($this->jobStartedAt[$key]);
 
         $this->report([
             'type' => 'job',
-            'trace_id' => $this->currentTrace?->traceId ?? $this->makeTraceId(),
+            'trace_id' => $traceId,
             'happened_at' => $this->isoTime(),
             'app' => $this->config('app_name'),
             'environment' => $this->config('environment'),
@@ -184,16 +310,27 @@ class Dozor implements DozorContract
         }
 
         $trace = $this->currentTrace?->traceId ?? $this->makeTraceId();
+        $samplingKey = $trace . '|' . $e::class . '|' . $e->getFile() . ':' . $e->getLine();
+
+        if (!$this->sampler->shouldSample('exceptions', $samplingKey)) {
+            logger()->debug('dozor.sampling.exception_dropped', [
+                'trace_id' => $trace,
+                'exception_class' => $e::class,
+                'sample_rate' => $this->sampler->resolveRate('exceptions'),
+            ]);
+
+            return;
+        }
 
         $payload = [
             'class' => $e::class,
             'message' => $e->getMessage(),
             'file' => $e->getFile(),
             'line' => $e->getLine(),
-            'context' => $context,
+            'context' => $this->sanitizePayload($context),
         ];
 
-        if ($this->config('capture_exception_source_code', false)) {
+        if ((bool) $this->config('capture_exception_source_code', false)) {
             $payload['snippet'] = $this->sourceSnippet($e->getFile(), $e->getLine());
         }
 
@@ -210,12 +347,37 @@ class Dozor implements DozorContract
 
     public function recordOutgoingHttp(array $payload): void
     {
-        if (!$this->enabled() || $this->config('filtering.ignore_outgoing_http', false)) {
+        if (
+            !$this->enabled()
+            || $this->config('filtering.ignore_outgoing_http', false)
+            || $this->currentRequestSuppressed
+        ) {
             return;
         }
 
+        $traceId = $this->currentTrace?->traceId ?? $this->makeTraceId();
+        $samplingKey = $traceId . '|' . Arr::get($payload, 'method') . '|' . Arr::get($payload, 'url');
+
+        if (!$this->sampler->shouldSample('outgoing_http', $samplingKey)) {
+            logger()->debug('dozor.sampling.outgoing_http_dropped', [
+                'trace_id' => $traceId,
+                'sample_rate' => $this->sampler->resolveRate('outgoing_http'),
+                'url' => Arr::get($payload, 'url'),
+            ]);
+
+            return;
+        }
+
+        if (is_array(Arr::get($payload, 'request_headers'))) {
+            $payload['request_headers'] = $this->redactor->redactHeaders((array) Arr::get($payload, 'request_headers', []));
+        }
+
+        if (is_array(Arr::get($payload, 'response_headers'))) {
+            $payload['response_headers'] = $this->redactor->redactHeaders((array) Arr::get($payload, 'response_headers', []));
+        }
+
         logger()->debug('dozor.instrumentation.outgoing_http.recorded', [
-            'trace_id' => $this->currentTrace?->traceId,
+            'trace_id' => $traceId,
             'method' => Arr::get($payload, 'method'),
             'url' => Arr::get($payload, 'url'),
             'status_code' => Arr::get($payload, 'status_code'),
@@ -224,7 +386,7 @@ class Dozor implements DozorContract
 
         $this->report([
             'type' => 'outgoing_http',
-            'trace_id' => $this->currentTrace?->traceId ?? $this->makeTraceId(),
+            'trace_id' => $traceId,
             'happened_at' => $this->isoTime(),
             'app' => $this->config('app_name'),
             'environment' => $this->config('environment'),
@@ -235,11 +397,24 @@ class Dozor implements DozorContract
 
     public function recordLogMessage(string $level, string $message, array $context = []): void
     {
-        if (!$this->enabled() || !$this->config('instrumentation.capture_logs', true)) {
+        if (!$this->enabled() || !$this->config('instrumentation.capture_logs', false)) {
             return;
         }
 
         if ($this->capturingLogs || str_starts_with($message, 'dozor.')) {
+            return;
+        }
+
+        $traceId = $this->currentTrace?->traceId ?? $this->makeTraceId();
+        $samplingKey = $traceId . '|' . $level . '|' . $message;
+
+        if (!$this->sampler->shouldSample('logs', $samplingKey)) {
+            logger()->debug('dozor.sampling.log_dropped', [
+                'trace_id' => $traceId,
+                'level' => $level,
+                'sample_rate' => $this->sampler->resolveRate('logs'),
+            ]);
+
             return;
         }
 
@@ -248,7 +423,7 @@ class Dozor implements DozorContract
         try {
             $this->report([
                 'type' => 'log',
-                'trace_id' => $this->currentTrace?->traceId ?? $this->makeTraceId(),
+                'trace_id' => $traceId,
                 'happened_at' => $this->isoTime(),
                 'app' => $this->config('app_name'),
                 'environment' => $this->config('environment'),
@@ -266,20 +441,33 @@ class Dozor implements DozorContract
 
     public function recordApplicationEvent(string $eventName, array $payload = []): void
     {
-        if (!$this->enabled() || !$this->config('instrumentation.capture_events', true)) {
+        if (!$this->enabled() || !$this->config('instrumentation.capture_events', false)) {
+            return;
+        }
+
+        $traceId = $this->currentTrace?->traceId ?? $this->makeTraceId();
+        $samplingKey = $traceId . '|' . $eventName;
+
+        if (!$this->sampler->shouldSample('events', $samplingKey)) {
+            logger()->debug('dozor.sampling.event_dropped', [
+                'trace_id' => $traceId,
+                'event_name' => $eventName,
+                'sample_rate' => $this->sampler->resolveRate('events'),
+            ]);
+
             return;
         }
 
         $this->report([
             'type' => 'event',
-            'trace_id' => $this->currentTrace?->traceId ?? $this->makeTraceId(),
+            'trace_id' => $traceId,
             'happened_at' => $this->isoTime(),
             'app' => $this->config('app_name'),
             'environment' => $this->config('environment'),
             'server' => $this->config('server'),
             'payload' => [
                 'name' => $eventName,
-                'data' => $payload,
+                'data' => $this->sanitizePayload($payload),
             ],
         ]);
     }
@@ -295,6 +483,23 @@ class Dozor implements DozorContract
 
         $record['deployment'] ??= $this->config('deployment');
         $record['release'] ??= $this->config('release', $this->config('deployment'));
+
+        $payload = Arr::get($record, 'payload');
+        if (is_array($payload)) {
+            $payload = $this->redactor->redactPayload($payload);
+            $limitedPayload = $this->redactor->enforcePayloadLimit($payload, (string) Arr::get($record, 'type', 'unknown'));
+
+            if ($limitedPayload === null) {
+                logger()->warning('dozor.redaction.payload_dropped', [
+                    'record_type' => Arr::get($record, 'type', 'unknown'),
+                    'trace_id' => Arr::get($record, 'trace_id'),
+                ]);
+
+                return;
+            }
+
+            $record['payload'] = $limitedPayload;
+        }
 
         if ($immediate) {
             $this->ingest->writeNow($record);
@@ -327,19 +532,7 @@ class Dozor implements DozorContract
      */
     private function sanitizePayload(array $payload): array
     {
-        $fields = array_values(array_filter(array_map('trim', (array) $this->config('redact_payload_fields', []))));
-
-        foreach ($payload as $key => $value) {
-            if (is_array($value)) {
-                $payload[$key] = $this->sanitizePayload($value);
-            }
-
-            if (is_string($key) && in_array($key, $fields, true)) {
-                $payload[$key] = '[REDACTED]';
-            }
-        }
-
-        return $payload;
+        return $this->redactor->redactPayload($payload);
     }
 
     private function sourceSnippet(string $file, int $line): ?array

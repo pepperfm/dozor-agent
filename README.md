@@ -75,7 +75,31 @@ Useful options:
 ```bash
 php artisan dozor:agent --listen-on=127.0.0.1:4815 --store-path=/var/www/app/storage/app/dozor
 php artisan dozor:status
+php artisan dozor:status --json
+php artisan dozor:status --strict
 ```
+
+## Runtime telemetry and status
+
+`dozor:status` now reports:
+
+- local agent reachability (`ping`)
+- queue depth and failed queue depth
+- dropped batches and failed upload counters
+- last flush / heartbeat / upload timestamps
+
+Telemetry state is persisted to:
+
+```env
+DOZOR_AGENT_STATE_PATH=/var/www/app/storage/app/dozor/runtime-state.json
+```
+
+## Production packaging examples
+
+Example service files are available in:
+
+- `examples/supervisor/dozor-agent.conf.example`
+- `examples/systemd/dozor-agent.service.example`
 
 ## Current record model
 

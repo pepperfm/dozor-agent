@@ -1,0 +1,23 @@
+[Unit]
+Description=Dozor Agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/app
+EnvironmentFile=/etc/dozor/dozor-agent.env
+ExecStart=/usr/bin/php /var/www/app/artisan dozor:agent --listen-on=${DOZOR_INGEST_URI} --store-path=${DOZOR_AGENT_STORE_PATH} --spool-path=${DOZOR_AGENT_SPOOL_PATH} --telemetry-state-path=${DOZOR_AGENT_STATE_PATH} --silent
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=always
+RestartSec=2
+TimeoutStopSec=3600
+KillSignal=SIGTERM
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=dozor-agent
+
+[Install]
+WantedBy=multi-user.target
