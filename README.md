@@ -62,6 +62,7 @@ DOZOR_INGEST_EVENT_BUFFER=500
 DOZOR_REQUEST_SAMPLE_RATE=1.0
 DOZOR_IGNORE_QUERIES=false
 DOZOR_AGENT_STORE_PATH=/var/www/app/storage/app/dozor
+DOZOR_AGENT_SHIP_FLUSH_INTERVAL_SECONDS=10
 ```
 
 ## Run local agent
@@ -74,6 +75,7 @@ Useful options:
 
 ```bash
 php artisan dozor:agent --listen-on=127.0.0.1:4815 --store-path=/var/www/app/storage/app/dozor
+php artisan dozor:agent --ship-flush-interval-seconds=10
 php artisan dozor:status
 php artisan dozor:status --json
 php artisan dozor:status --strict
@@ -87,6 +89,8 @@ php artisan dozor:status --strict
 - queue depth and failed queue depth
 - dropped batches and failed upload counters
 - last flush / heartbeat / upload timestamps
+
+Shipping strategy is strict batching by default and cannot be toggled via config flags.
 
 Telemetry state is persisted to:
 

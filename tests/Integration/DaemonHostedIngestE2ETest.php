@@ -78,16 +78,16 @@ final class DaemonHostedIngestE2ETest extends TestCase
             escapeshellarg($hostedRouterPath),
         );
 
-        $agentCommand = sprintf(
-            'php %s %s %s %s %s %s %s %s',
-            escapeshellarg($agentScriptPath),
-            escapeshellarg($listenOn),
-            escapeshellarg($tokenHash),
-            escapeshellarg($storePath),
-            escapeshellarg($spoolPath),
-            escapeshellarg($hostedIngestUrl),
-            escapeshellarg($ingestToken),
-            escapeshellarg(dirname(__DIR__, 2)),
+        $agentCommand = $this->buildAgentCommand(
+            agentScriptPath: $agentScriptPath,
+            listenOn: $listenOn,
+            tokenHash: $tokenHash,
+            storePath: $storePath,
+            spoolPath: $spoolPath,
+            hostedIngestUrl: $hostedIngestUrl,
+            ingestToken: $ingestToken,
+            flushIntervalSeconds: 0.01,
+            maxBatchesPerFlush: 10,
         );
 
         $hostedProcess = proc_open(
@@ -172,6 +172,214 @@ final class DaemonHostedIngestE2ETest extends TestCase
             self::assertTrue(in_array('trace-e2e-first', $successfulSourceTraceIds, true));
             self::assertTrue(in_array('trace-e2e-second', $successfulSourceTraceIds, true));
             self::assertSame(0, $this->countFailedFiles($spoolPath));
+        } finally {
+            if (is_resource($agentProcess)) {
+                $this->stopProcess($agentProcess, $agentPipes);
+            }
+
+            if (is_resource($hostedProcess)) {
+                $this->stopProcess($hostedProcess, $hostedPipes);
+            }
+        }
+    }
+
+    public function test_strict_batching_waits_for_flush_window_before_shipping(): void
+    {
+        $scriptsPath = $this->makeTemporaryDirectory('dozor-e2e-strict-scripts');
+        $storePath = $this->makeTemporaryDirectory('dozor-e2e-strict-store');
+        $spoolPath = $this->makeTemporaryDirectory('dozor-e2e-strict-spool');
+        $tokenHash = 'strict-token-hash';
+        $ingestToken = 'strict-ingest-token';
+        $listenOn = '127.0.0.1:' . $this->findFreePort();
+        $hostedAddress = '127.0.0.1:' . $this->findFreePort();
+        $hostedIngestUrl = 'http://' . $hostedAddress . '/ingest';
+        $hostedRequestsPath = $scriptsPath . DIRECTORY_SEPARATOR . 'hosted-requests.ndjson';
+        $hostedCounterPath = $scriptsPath . DIRECTORY_SEPARATOR . 'hosted-counter.txt';
+        $hostedRouterPath = $scriptsPath . DIRECTORY_SEPARATOR . 'hosted-router.php';
+        $agentScriptPath = $scriptsPath . DIRECTORY_SEPARATOR . 'run-agent.php';
+
+        file_put_contents(
+            $hostedRouterPath,
+            $this->buildHostedRouterScript($hostedRequestsPath, $hostedCounterPath, false),
+        );
+        file_put_contents($agentScriptPath, $this->buildAgentRunnerScript());
+
+        $hostedProcess = null;
+        $hostedPipes = [];
+        $agentProcess = null;
+        $agentPipes = [];
+
+        $hostedCommand = sprintf(
+            'php -S %s %s',
+            escapeshellarg($hostedAddress),
+            escapeshellarg($hostedRouterPath),
+        );
+
+        $agentCommand = $this->buildAgentCommand(
+            agentScriptPath: $agentScriptPath,
+            listenOn: $listenOn,
+            tokenHash: $tokenHash,
+            storePath: $storePath,
+            spoolPath: $spoolPath,
+            hostedIngestUrl: $hostedIngestUrl,
+            ingestToken: $ingestToken,
+            flushIntervalSeconds: 0.35,
+            maxBatchesPerFlush: 10,
+        );
+
+        $hostedProcess = proc_open(
+            $hostedCommand,
+            [
+                0 => ['pipe', 'r'],
+                1 => ['pipe', 'w'],
+                2 => ['pipe', 'w'],
+            ],
+            $hostedPipes,
+        );
+
+        self::assertTrue(is_resource($hostedProcess));
+
+        $agentProcess = proc_open(
+            $agentCommand,
+            [
+                0 => ['pipe', 'r'],
+                1 => ['pipe', 'w'],
+                2 => ['pipe', 'w'],
+            ],
+            $agentPipes,
+        );
+
+        self::assertTrue(is_resource($agentProcess));
+
+        try {
+            $this->waitFor(fn(): bool => $this->hostedReady($hostedAddress), 5000);
+
+            $ingest = new Ingest(
+                transmitTo: $listenOn,
+                connectionTimeout: 0.5,
+                timeout: 0.5,
+                streamFactory: new SocketStreamFactory()(...),
+                buffer: new RecordsBuffer(10),
+                tokenHash: $tokenHash,
+            );
+
+            $this->waitFor(fn(): bool => $this->pingAgent($ingest), 5000);
+
+            $ingest->write($this->makeRecord('trace-strict-window', '/strict/window'));
+            $ingest->digest();
+
+            usleep(120_000);
+            self::assertSame(0, $this->countLoggedRequests($hostedRequestsPath));
+            self::assertSame(1, $this->countQueueFiles($spoolPath));
+
+            $this->waitFor(fn(): bool => $this->countLoggedRequests($hostedRequestsPath) >= 1, 5000);
+            $this->waitFor(fn(): bool => $this->countQueueFiles($spoolPath) === 0, 5000);
+
+            $requests = $this->readHostedRequests($hostedRequestsPath);
+            self::assertNotEmpty($requests);
+            self::assertSame(202, $requests[0]['status'] ?? null);
+        } finally {
+            if (is_resource($agentProcess)) {
+                $this->stopProcess($agentProcess, $agentPipes);
+            }
+
+            if (is_resource($hostedProcess)) {
+                $this->stopProcess($hostedProcess, $hostedPipes);
+            }
+        }
+    }
+
+    public function test_strict_batching_can_force_flush_on_queue_depth_threshold(): void
+    {
+        $scriptsPath = $this->makeTemporaryDirectory('dozor-e2e-force-scripts');
+        $storePath = $this->makeTemporaryDirectory('dozor-e2e-force-store');
+        $spoolPath = $this->makeTemporaryDirectory('dozor-e2e-force-spool');
+        $tokenHash = 'force-token-hash';
+        $ingestToken = 'force-ingest-token';
+        $listenOn = '127.0.0.1:' . $this->findFreePort();
+        $hostedAddress = '127.0.0.1:' . $this->findFreePort();
+        $hostedIngestUrl = 'http://' . $hostedAddress . '/ingest';
+        $hostedRequestsPath = $scriptsPath . DIRECTORY_SEPARATOR . 'hosted-requests.ndjson';
+        $hostedCounterPath = $scriptsPath . DIRECTORY_SEPARATOR . 'hosted-counter.txt';
+        $hostedRouterPath = $scriptsPath . DIRECTORY_SEPARATOR . 'hosted-router.php';
+        $agentScriptPath = $scriptsPath . DIRECTORY_SEPARATOR . 'run-agent.php';
+
+        file_put_contents(
+            $hostedRouterPath,
+            $this->buildHostedRouterScript($hostedRequestsPath, $hostedCounterPath, false),
+        );
+        file_put_contents($agentScriptPath, $this->buildAgentRunnerScript());
+
+        $hostedProcess = null;
+        $hostedPipes = [];
+        $agentProcess = null;
+        $agentPipes = [];
+
+        $hostedCommand = sprintf(
+            'php -S %s %s',
+            escapeshellarg($hostedAddress),
+            escapeshellarg($hostedRouterPath),
+        );
+
+        $agentCommand = $this->buildAgentCommand(
+            agentScriptPath: $agentScriptPath,
+            listenOn: $listenOn,
+            tokenHash: $tokenHash,
+            storePath: $storePath,
+            spoolPath: $spoolPath,
+            hostedIngestUrl: $hostedIngestUrl,
+            ingestToken: $ingestToken,
+            flushIntervalSeconds: 10.0,
+            maxBatchesPerFlush: 1,
+        );
+
+        $hostedProcess = proc_open(
+            $hostedCommand,
+            [
+                0 => ['pipe', 'r'],
+                1 => ['pipe', 'w'],
+                2 => ['pipe', 'w'],
+            ],
+            $hostedPipes,
+        );
+
+        self::assertTrue(is_resource($hostedProcess));
+
+        $agentProcess = proc_open(
+            $agentCommand,
+            [
+                0 => ['pipe', 'r'],
+                1 => ['pipe', 'w'],
+                2 => ['pipe', 'w'],
+            ],
+            $agentPipes,
+        );
+
+        self::assertTrue(is_resource($agentProcess));
+
+        try {
+            $this->waitFor(fn(): bool => $this->hostedReady($hostedAddress), 5000);
+
+            $ingest = new Ingest(
+                transmitTo: $listenOn,
+                connectionTimeout: 0.5,
+                timeout: 0.5,
+                streamFactory: new SocketStreamFactory()(...),
+                buffer: new RecordsBuffer(10),
+                tokenHash: $tokenHash,
+            );
+
+            $this->waitFor(fn(): bool => $this->pingAgent($ingest), 5000);
+
+            $ingest->write($this->makeRecord('trace-strict-force', '/strict/force'));
+            $ingest->digest();
+
+            $this->waitFor(fn(): bool => $this->countLoggedRequests($hostedRequestsPath) >= 1, 2000);
+            $this->waitFor(fn(): bool => $this->countQueueFiles($spoolPath) === 0, 3000);
+
+            $requests = $this->readHostedRequests($hostedRequestsPath);
+            self::assertNotEmpty($requests);
+            self::assertSame(202, $requests[0]['status'] ?? null);
         } finally {
             if (is_resource($agentProcess)) {
                 $this->stopProcess($agentProcess, $agentPipes);
@@ -314,10 +522,11 @@ final class DaemonHostedIngestE2ETest extends TestCase
         return array_values(array_filter($decoded, static fn(mixed $item): bool => is_array($item)));
     }
 
-    private function buildHostedRouterScript(string $requestsPath, string $counterPath): string
+    private function buildHostedRouterScript(string $requestsPath, string $counterPath, bool $failFirstAttempt = true): string
     {
         $requestsPathExport = var_export($requestsPath, true);
         $counterPathExport = var_export($counterPath, true);
+        $failFirstAttemptExport = var_export($failFirstAttempt, true);
 
         return <<<PHP
 <?php
@@ -326,6 +535,7 @@ declare(strict_types=1);
 
 \$requestsPath = {$requestsPathExport};
 \$counterPath = {$counterPathExport};
+\$failFirstAttempt = {$failFirstAttemptExport};
 \$uri = parse_url(\$_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH);
 
 if (\$uri === '/health') {
@@ -346,7 +556,7 @@ if (\$uri !== '/ingest') {
 \$attempt++;
 file_put_contents(\$counterPath, (string) \$attempt, LOCK_EX);
 
-\$status = \$attempt === 1 ? 503 : 202;
+\$status = \$failFirstAttempt && \$attempt === 1 ? 503 : 202;
 \$entry = [
     'attempt' => \$attempt,
     'status' => \$status,
@@ -419,12 +629,38 @@ $server = new Dozor\Agent\Server(
     shipper: $shipper,
     traceBatchTransformer: $transformer,
     shipBatchSize: 50,
-    shipMaxBatchesPerFlush: 10,
-    shipFlushIntervalSeconds: 0.01,
+    shipMaxBatchesPerFlush: isset($argv[9]) ? (int) $argv[9] : 10,
+    shipFlushIntervalSeconds: isset($argv[8]) ? (float) $argv[8] : 0.01,
     heartbeatIntervalSeconds: 0.0,
 );
 
 $server->run();
 PHP;
+    }
+
+    private function buildAgentCommand(
+        string $agentScriptPath,
+        string $listenOn,
+        string $tokenHash,
+        string $storePath,
+        string $spoolPath,
+        string $hostedIngestUrl,
+        string $ingestToken,
+        float $flushIntervalSeconds,
+        int $maxBatchesPerFlush,
+    ): string {
+        return sprintf(
+            'php %s %s %s %s %s %s %s %s %s %s',
+            escapeshellarg($agentScriptPath),
+            escapeshellarg($listenOn),
+            escapeshellarg($tokenHash),
+            escapeshellarg($storePath),
+            escapeshellarg($spoolPath),
+            escapeshellarg($hostedIngestUrl),
+            escapeshellarg($ingestToken),
+            escapeshellarg(dirname(__DIR__, 2)),
+            escapeshellarg((string) $flushIntervalSeconds),
+            escapeshellarg((string) $maxBatchesPerFlush),
+        );
     }
 }

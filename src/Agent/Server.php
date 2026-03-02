@@ -32,6 +32,8 @@ final class Server
 
     private float $lastHeartbeatAt = 0.0;
 
+    private float $nextFlushAt = 0.0;
+
     public function __construct(
         private readonly string $listenOn,
         private readonly string $tokenHash,
@@ -75,6 +77,7 @@ final class Server
         $this->lastFlushAt = microtime(true);
         $this->startedAt = microtime(true);
         $this->lastHeartbeatAt = microtime(true);
+        $this->nextFlushAt = $this->nextFlushDeadline($this->lastFlushAt);
 
         $this->line(sprintf('Dozor agent listening on %s (%s)', $this->listenOn, $this->serverName));
         $this->runtimeState?->markStarted(
@@ -105,7 +108,7 @@ final class Server
             }
 
             $this->emitHeartbeatIfDue();
-            $this->flushQueuedBatches(force: true);
+            $this->flushQueuedBatches(force: $this->shouldForceFlushByQueueDepth());
         }
 
         $this->flushQueuedBatches(force: true);
@@ -255,7 +258,12 @@ final class Server
             $this->spoolQueue?->enqueue($payload);
         }
 
-        $this->flushQueuedBatches(force: count($chunks) >= $this->shipMaxBatchesPerFlush);
+        $forceFlush = count($chunks) >= $this->shipMaxBatchesPerFlush;
+        if (!$forceFlush) {
+            $forceFlush = $this->shouldForceFlushByQueueDepth();
+        }
+
+        $this->flushQueuedBatches(force: $forceFlush);
     }
 
     /**
@@ -286,11 +294,12 @@ final class Server
         }
 
         $now = microtime(true);
-        if (!$force && $now - $this->lastFlushAt < $this->shipFlushIntervalSeconds) {
+        if (!$force && $this->shouldSkipScheduledFlush($now)) {
             return;
         }
 
         $this->lastFlushAt = $now;
+        $this->nextFlushAt = $this->nextFlushDeadline($now);
         $maxBatches = $force ? max($this->shipMaxBatchesPerFlush, 1000) : $this->shipMaxBatchesPerFlush;
         $shipper = $this->shipper;
         $queueDepth = $this->spoolQueue->queuedBatchesCount();
@@ -308,6 +317,28 @@ final class Server
             },
             $maxBatches,
         );
+    }
+
+    private function shouldSkipScheduledFlush(float $now): bool
+    {
+        return $now < $this->nextFlushAt;
+    }
+
+    private function nextFlushDeadline(float $now): float
+    {
+        return $now + max(0.05, $this->shipFlushIntervalSeconds);
+    }
+
+    private function shouldForceFlushByQueueDepth(): bool
+    {
+        if (
+            $this->spoolQueue === null
+            || $this->shipMaxBatchesPerFlush <= 0
+        ) {
+            return false;
+        }
+
+        return $this->spoolQueue->queuedBatchesCount() >= $this->shipMaxBatchesPerFlush;
     }
 
     private function emitHeartbeatIfDue(): void
