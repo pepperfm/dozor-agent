@@ -1,0 +1,13 @@
+{
+  "name": "Dozor Agent brand",
+  "colors": {
+    "midnight": "#081226",
+    "graphite": "#0F172A",
+    "tower": "#CBD5E1",
+    "cyan": "#22D3EE",
+    "sky": "#7DD3FC",
+    "amber": "#F59E0B",
+    "rose": "#FB7185",
+    "white": "#FFFFFF"
+  }
+}

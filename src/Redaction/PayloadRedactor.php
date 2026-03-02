@@ -72,10 +72,6 @@ final readonly class PayloadRedactor
 
         $json = $this->encode($payload);
         if ($json === null) {
-            logger()->warning('dozor.redaction.payload_encoding_failed', [
-                'record_type' => $recordType,
-            ]);
-
             return null;
         }
 
@@ -83,13 +79,6 @@ final readonly class PayloadRedactor
         if ($size <= $this->maxPayloadBytes) {
             return $payload;
         }
-
-        logger()->warning('dozor.redaction.payload_oversize', [
-            'record_type' => $recordType,
-            'payload_size_bytes' => $size,
-            'max_payload_bytes' => $this->maxPayloadBytes,
-            'oversize_behavior' => $this->oversizeBehavior,
-        ]);
 
         if ($this->oversizeBehavior === 'truncate') {
             return [

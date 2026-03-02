@@ -35,11 +35,6 @@ final class TraceBatchTransformer
      */
     public function transform(array $records): array
     {
-        logger()->info('dozor.agent.trace_batch_transform.started', [
-            'records_count' => count($records),
-            'max_spans_per_trace' => $this->maxSpansPerTrace,
-        ]);
-
         $grouped = $this->groupBySourceTrace($records);
         $traces = [];
 
@@ -63,11 +58,6 @@ final class TraceBatchTransformer
             'sent_at' => now()->toIso8601String(),
             'traces' => $traces,
         ];
-
-        logger()->info('dozor.agent.trace_batch_transform.completed', [
-            'source_records_count' => count($records),
-            'traces_count' => count($traces),
-        ]);
 
         return $payload;
     }
@@ -146,27 +136,9 @@ final class TraceBatchTransformer
 
             $spans[] = $span;
 
-            logger()->debug('dozor.agent.trace_batch_transform.span_mapped', [
-                'trace_id' => $traceId,
-                'source_trace_id' => $sourceTraceId,
-                'span_kind' => Arr::get($span, 'kind'),
-                'span_name' => Arr::get($span, 'name'),
-                'start_offset_ms' => Arr::get($span, 'start_offset_ms'),
-                'parent_span_id' => Arr::get($span, 'parent_span_id'),
-            ]);
-
             if ($traceException === null) {
                 $traceException = $this->extractException($record);
             }
-        }
-
-        if ($droppedSpans > 0) {
-            logger()->warning('dozor.agent.trace_batch_transform.spans_dropped', [
-                'trace_id' => $traceId,
-                'source_trace_id' => $sourceTraceId,
-                'dropped_spans' => $droppedSpans,
-                'max_spans_per_trace' => $this->maxSpansPerTrace,
-            ]);
         }
 
         $dbTimeMs = $this->sumQueryTime($records);
@@ -177,20 +149,6 @@ final class TraceBatchTransformer
         $release = Arr::get($rootRecord, 'release', Arr::get($rootRecord, 'deployment'));
         $controller = $this->resolveController($rootPayload);
         $middleware = $this->resolveMiddleware($rootPayload);
-
-        logger()->info('dozor.agent.trace_batch_transform.trace_closed', [
-            'trace_id' => $traceId,
-            'source_trace_id' => $sourceTraceId,
-            'root_type' => $rootType,
-            'emitted_spans' => count($spans),
-            'dropped_spans' => $droppedSpans,
-        ]);
-        logger()->debug('dozor.agent.trace_batch_transform.attribution_resolved', [
-            'trace_id' => $traceId,
-            'route' => $this->resolveRoute($rootRecord),
-            'controller' => $controller,
-            'middleware_count' => count($middleware),
-        ]);
 
         return [
             'id' => $traceId,

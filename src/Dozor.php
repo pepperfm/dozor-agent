@@ -65,24 +65,6 @@ class Dozor implements DozorContract
         );
         $this->requestFilter = new RequestFilter((array) Arr::get($this->config, 'filtering.request', []));
 
-        logger()->info('dozor.security.profile', [
-            'capture_request_payload' => $this->config('capture_request_payload', false),
-            'capture_exception_source_code' => $this->config('capture_exception_source_code', false),
-            'capture_logs' => $this->config('instrumentation.capture_logs', false),
-            'capture_events' => $this->config('instrumentation.capture_events', false),
-            'limits' => [
-                'max_payload_bytes' => (int) Arr::get($this->config, 'limits.max_payload_bytes', 16384),
-                'oversize_behavior' => Arr::get($this->config, 'limits.oversize_behavior', 'drop'),
-            ],
-            'sampling' => [
-                'requests' => $this->sampler->resolveRate('requests'),
-                'jobs' => $this->sampler->resolveRate('jobs'),
-                'exceptions' => $this->sampler->resolveRate('exceptions'),
-                'outgoing_http' => $this->sampler->resolveRate('outgoing_http'),
-                'logs' => $this->sampler->resolveRate('logs'),
-                'events' => $this->sampler->resolveRate('events'),
-            ],
-        ]);
     }
 
     public function enabled(): bool
@@ -113,14 +95,6 @@ class Dozor implements DozorContract
             }
         }
 
-        logger()->debug('dozor.sampling.request_decision', [
-            'trace_id' => $traceId,
-            'suppressed' => $this->currentRequestSuppressed,
-            'reason' => $this->currentRequestSuppressedReason,
-            'path' => $request->path(),
-            'method' => $request->method(),
-            'sample_rate' => $this->sampler->resolveRate('requests'),
-        ]);
 
         $requestMeta = [
             'method' => $request->method(),
@@ -158,12 +132,6 @@ class Dozor implements DozorContract
         }
 
         if ($this->currentRequestSuppressed) {
-            logger()->debug('dozor.sampling.request_dropped', [
-                'trace_id' => $this->currentTrace?->traceId,
-                'reason' => $this->currentRequestSuppressedReason,
-                'path' => $request->path(),
-            ]);
-
             $this->currentTrace = null;
             $this->currentRequestSuppressed = false;
             $this->currentRequestSuppressedReason = '';
@@ -220,11 +188,6 @@ class Dozor implements DozorContract
         $samplingKey = $traceId . '|' . $event->connectionName . '|' . $event->sql;
 
         if (!$this->sampler->shouldSample('queries', $samplingKey)) {
-            logger()->debug('dozor.sampling.query_dropped', [
-                'trace_id' => $traceId,
-                'sample_rate' => $this->sampler->resolveRate('queries'),
-            ]);
-
             return;
         }
 
@@ -266,12 +229,6 @@ class Dozor implements DozorContract
         $samplingKey = $traceId . '|' . $event->connectionName . '|' . $event->job->resolveName();
 
         if (!$this->sampler->shouldSample('jobs', $samplingKey)) {
-            logger()->debug('dozor.sampling.job_dropped', [
-                'trace_id' => $traceId,
-                'job' => $event->job->resolveName(),
-                'sample_rate' => $this->sampler->resolveRate('jobs'),
-            ]);
-
             return;
         }
 
@@ -313,12 +270,6 @@ class Dozor implements DozorContract
         $samplingKey = $trace . '|' . $e::class . '|' . $e->getFile() . ':' . $e->getLine();
 
         if (!$this->sampler->shouldSample('exceptions', $samplingKey)) {
-            logger()->debug('dozor.sampling.exception_dropped', [
-                'trace_id' => $trace,
-                'exception_class' => $e::class,
-                'sample_rate' => $this->sampler->resolveRate('exceptions'),
-            ]);
-
             return;
         }
 
@@ -359,12 +310,6 @@ class Dozor implements DozorContract
         $samplingKey = $traceId . '|' . Arr::get($payload, 'method') . '|' . Arr::get($payload, 'url');
 
         if (!$this->sampler->shouldSample('outgoing_http', $samplingKey)) {
-            logger()->debug('dozor.sampling.outgoing_http_dropped', [
-                'trace_id' => $traceId,
-                'sample_rate' => $this->sampler->resolveRate('outgoing_http'),
-                'url' => Arr::get($payload, 'url'),
-            ]);
-
             return;
         }
 
@@ -375,14 +320,6 @@ class Dozor implements DozorContract
         if (is_array(Arr::get($payload, 'response_headers'))) {
             $payload['response_headers'] = $this->redactor->redactHeaders((array) Arr::get($payload, 'response_headers', []));
         }
-
-        logger()->debug('dozor.instrumentation.outgoing_http.recorded', [
-            'trace_id' => $traceId,
-            'method' => Arr::get($payload, 'method'),
-            'url' => Arr::get($payload, 'url'),
-            'status_code' => Arr::get($payload, 'status_code'),
-            'failed' => Arr::get($payload, 'failed', false),
-        ]);
 
         $this->report([
             'type' => 'outgoing_http',
@@ -409,12 +346,6 @@ class Dozor implements DozorContract
         $samplingKey = $traceId . '|' . $level . '|' . $message;
 
         if (!$this->sampler->shouldSample('logs', $samplingKey)) {
-            logger()->debug('dozor.sampling.log_dropped', [
-                'trace_id' => $traceId,
-                'level' => $level,
-                'sample_rate' => $this->sampler->resolveRate('logs'),
-            ]);
-
             return;
         }
 
@@ -449,12 +380,6 @@ class Dozor implements DozorContract
         $samplingKey = $traceId . '|' . $eventName;
 
         if (!$this->sampler->shouldSample('events', $samplingKey)) {
-            logger()->debug('dozor.sampling.event_dropped', [
-                'trace_id' => $traceId,
-                'event_name' => $eventName,
-                'sample_rate' => $this->sampler->resolveRate('events'),
-            ]);
-
             return;
         }
 
@@ -490,11 +415,6 @@ class Dozor implements DozorContract
             $limitedPayload = $this->redactor->enforcePayloadLimit($payload, (string) Arr::get($record, 'type', 'unknown'));
 
             if ($limitedPayload === null) {
-                logger()->warning('dozor.redaction.payload_dropped', [
-                    'record_type' => Arr::get($record, 'type', 'unknown'),
-                    'trace_id' => Arr::get($record, 'trace_id'),
-                ]);
-
                 return;
             }
 

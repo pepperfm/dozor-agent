@@ -77,14 +77,6 @@ final class Server
         $this->lastHeartbeatAt = microtime(true);
 
         $this->line(sprintf('Dozor agent listening on %s (%s)', $this->listenOn, $this->serverName));
-
-        logger()->info('dozor.agent.lifecycle.started', [
-            'listen_on' => $this->listenOn,
-            'server' => $this->serverName,
-            'app' => $this->appName,
-            'environment' => $this->environment,
-            'shipper_enabled' => $this->shipper?->enabled() ?? false,
-        ]);
         $this->runtimeState?->markStarted(
             listenOn: $this->listenOn,
             serverName: $this->serverName,
@@ -107,10 +99,6 @@ final class Server
                 fwrite_all($client, '2:OK');
             } catch (Throwable $e) {
                 $this->line('Agent error: ' . $e->getMessage());
-                logger()->error('dozor.agent.lifecycle.client_error', [
-                    'class' => $e::class,
-                    'message' => $e->getMessage(),
-                ]);
                 @fwrite($client, '5:ER');
             } finally {
                 fclose_safely($client);
@@ -121,11 +109,6 @@ final class Server
         }
 
         $this->flushQueuedBatches(force: true);
-
-        logger()->info('dozor.agent.lifecycle.stopped', [
-            'listen_on' => $this->listenOn,
-            'server' => $this->serverName,
-        ]);
         $this->runtimeState?->markStopped((int) max(0, round(microtime(true) - $this->startedAt)));
 
         fclose_safely($server);
@@ -155,10 +138,6 @@ final class Server
     private function requestShutdown(string $signal): void
     {
         $this->running = false;
-
-        logger()->info('dozor.agent.lifecycle.shutdown_requested', [
-            'signal' => $signal,
-        ]);
         $this->runtimeState?->markShutdownRequested($signal);
 
         $this->line("Shutdown requested by {$signal}. Draining queued batches...");
@@ -316,14 +295,6 @@ final class Server
         $shipper = $this->shipper;
         $queueDepth = $this->spoolQueue->queuedBatchesCount();
         $failedQueueDepth = $this->spoolQueue->failedBatchesCount();
-
-        logger()->info('dozor.agent.shipper.flush_triggered', [
-            'force' => $force,
-            'max_batches' => $maxBatches,
-            'flush_interval_seconds' => $this->shipFlushIntervalSeconds,
-            'queue_depth' => $queueDepth,
-            'failed_queue_depth' => $failedQueueDepth,
-        ]);
         $this->runtimeState?->markFlush(
             force: $force,
             maxBatches: $maxBatches,
@@ -377,13 +348,6 @@ final class Server
                 'memory_peak_bytes' => memory_get_peak_usage(true),
             ],
         ];
-
-        logger()->info('dozor.agent.instrumentation.heartbeat_emitted', [
-            'server' => $this->serverName,
-            'queue_depth' => $heartbeatRecord['payload']['queue_depth'],
-            'failed_queue_depth' => $heartbeatRecord['payload']['failed_queue_depth'],
-            'uptime_seconds' => $heartbeatRecord['payload']['uptime_seconds'],
-        ]);
         $this->runtimeState?->markHeartbeat(
             queueDepth: $queueDepth,
             failedQueueDepth: $failedQueueDepth,

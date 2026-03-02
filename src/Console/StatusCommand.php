@@ -80,8 +80,6 @@ final class StatusCommand extends Command
             'ping_error' => $pingError,
         ];
 
-        logger()->info('dozor.agent.status.reported', $statusReport);
-
         if ((bool) $this->option('json')) {
             try {
                 $this->line((string) json_encode($statusReport, JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));

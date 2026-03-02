@@ -14,7 +14,6 @@ use Illuminate\Support\Facades\Http;
 use function count;
 use function is_array;
 use function is_string;
-use function mb_substr;
 use function trim;
 
 final readonly class HostedIngestTransport
@@ -43,23 +42,10 @@ final readonly class HostedIngestTransport
         if (!$this->enabled()) {
             $this->runtimeState?->incrementFailedUploads($batchId, $attempt, 'ingest_url_missing');
 
-            logger()->error('dozor.agent.shipper.upload_failed', [
-                'batch_id' => $batchId,
-                'attempt' => $attempt,
-                'reason' => 'ingest_url_missing',
-            ]);
-
             return false;
         }
 
         $recordsCount = $this->extractRecordsCount($payload);
-
-        logger()->info('dozor.agent.shipper.upload_attempt', [
-            'batch_id' => $batchId,
-            'attempt' => $attempt,
-            'records_count' => $recordsCount,
-            'ingest_url' => $this->ingestUrl,
-        ]);
 
         try {
             $request = Http::asJson()
@@ -75,16 +61,7 @@ final readonly class HostedIngestTransport
                 ->retry(
                     $this->retryAttempts,
                     function (int $httpAttempt, \Exception $exception): int {
-                        $delay = $this->retryBackoffMs * $httpAttempt;
-
-                        logger()->warning('dozor.agent.shipper.http_retry_backoff', [
-                            'http_attempt' => $httpAttempt,
-                            'delay_ms' => $delay,
-                            'class' => $exception::class,
-                            'message' => $exception->getMessage(),
-                        ]);
-
-                        return $delay;
+                        return $this->retryBackoffMs * $httpAttempt;
                     },
                     function (\Exception $exception, PendingRequest $_request): bool {
                         if ($exception instanceof ConnectionException) {
@@ -115,37 +92,13 @@ final readonly class HostedIngestTransport
                 'http_status_' . $response->status(),
             );
 
-            logger()->error('dozor.agent.shipper.upload_failed', [
-                'batch_id' => $batchId,
-                'attempt' => $attempt,
-                'records_count' => $recordsCount,
-                'status' => $response->status(),
-                'body' => mb_substr($response->body(), 0, 1024),
-            ]);
-
             return false;
         } catch (ConnectionException $e) {
             $this->runtimeState?->incrementFailedUploads($batchId, $attempt, 'connection_exception');
 
-            logger()->error('dozor.agent.shipper.upstream_connection_failed', [
-                'batch_id' => $batchId,
-                'attempt' => $attempt,
-                'records_count' => $recordsCount,
-                'class' => $e::class,
-                'message' => $e->getMessage(),
-            ]);
-
             return false;
         } catch (\Throwable $e) {
             $this->runtimeState?->incrementFailedUploads($batchId, $attempt, 'unexpected_exception');
-
-            logger()->error('dozor.agent.shipper.upload_failed', [
-                'batch_id' => $batchId,
-                'attempt' => $attempt,
-                'records_count' => $recordsCount,
-                'class' => $e::class,
-                'message' => $e->getMessage(),
-            ]);
 
             return false;
         }

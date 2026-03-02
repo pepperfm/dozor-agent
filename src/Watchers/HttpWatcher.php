@@ -32,12 +32,6 @@ final class HttpWatcher
     {
         $requestId = spl_object_id($event->request);
         $this->startedAt[$requestId] = microtime(true);
-
-        logger()->debug('dozor.instrumentation.outgoing_http.request_sending', [
-            'request_id' => $requestId,
-            'method' => $event->request->method(),
-            'url' => $event->request->url(),
-        ]);
     }
 
     public function responseReceived(ResponseReceived $event): void
@@ -108,14 +102,7 @@ final class HttpWatcher
     {
         try {
             $this->core->recordOutgoingHttp($payload);
-        } catch (Throwable $e) {
-            logger()->warning('dozor.instrumentation.outgoing_http.capture_failed', [
-                'phase' => $phase,
-                'class' => $e::class,
-                'message' => $e->getMessage(),
-                'method' => $payload['method'] ?? null,
-                'url' => $payload['url'] ?? null,
-            ]);
+        } catch (Throwable) {
         }
     }
 }

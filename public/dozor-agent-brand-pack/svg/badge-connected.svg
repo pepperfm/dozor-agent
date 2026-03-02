@@ -1,0 +1,5 @@
+<svg width="240" height="64" viewBox="0 0 240 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <rect width="240" height="64" rx="20" fill="#0F172A"/>
+    <circle cx="38" cy="32" r="10" fill="#22C55E"/>
+    <text x="62" y="38" font-family="Inter, Arial, sans-serif" font-size="24" font-weight="700" letter-spacing="1" fill="#E2E8F0">CONNECTED</text>
+    </svg>

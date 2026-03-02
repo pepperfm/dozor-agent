@@ -120,21 +120,6 @@ final class AgentCommand extends Command
                 maxSpansPerTrace: max(10, $traceMaxSpansPerTrace),
             );
 
-            logger()->info('dozor.agent.shipper.enabled', [
-                'spool_path' => $spoolPath,
-                'ingest_url' => $hostedIngestUrl,
-                'batch_size' => $shipBatchSize,
-                'max_batches_per_flush' => $shipMaxBatchesPerFlush,
-                'trace_max_spans_per_trace' => $traceMaxSpansPerTrace,
-                'heartbeat_interval_seconds' => $heartbeatIntervalSeconds,
-                'telemetry_state_path' => $telemetryStatePath,
-            ]);
-        } else {
-            logger()->warning('dozor.agent.shipper.disabled', [
-                'shipper_enabled' => $shipperEnabled,
-                'ingest_url_present' => $hostedIngestUrl !== '',
-                'telemetry_state_path' => $telemetryStatePath,
-            ]);
         }
 
         $server = new Server(
@@ -159,14 +144,6 @@ final class AgentCommand extends Command
         try {
             $server->run();
         } catch (Throwable $e) {
-            logger()->error('dozor.agent.lifecycle.fatal_exit', [
-                'reason' => 'server_run_failed',
-                'class' => $e::class,
-                'message' => $e->getMessage(),
-                'listen_on' => $listenOn,
-                'server' => $serverName,
-            ]);
-
             $this->components->error($e->getMessage());
 
             return self::FAILURE;

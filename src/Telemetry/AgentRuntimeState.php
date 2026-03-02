@@ -158,12 +158,7 @@ final class AgentRuntimeState
             $state['lifecycle']['updated_at'] = $this->nowIso();
 
             $this->write($state);
-        } catch (Throwable $e) {
-            logger()->warning('dozor.agent.telemetry.state_update_failed', [
-                'state_path' => $this->statePath,
-                'class' => $e::class,
-                'message' => $e->getMessage(),
-            ]);
+        } catch (Throwable) {
         }
     }
 
@@ -186,13 +181,7 @@ final class AgentRuntimeState
             $decoded = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
 
             return is_array($decoded) ? $decoded : [];
-        } catch (Throwable $e) {
-            logger()->warning('dozor.agent.telemetry.state_read_failed', [
-                'state_path' => $this->statePath,
-                'class' => $e::class,
-                'message' => $e->getMessage(),
-            ]);
-
+        } catch (Throwable) {
             return [];
         }
     }

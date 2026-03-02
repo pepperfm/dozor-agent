@@ -22,12 +22,7 @@ final readonly class LogWatcher
                 message: (string) $event->message,
                 context: $event->context,
             );
-        } catch (Throwable $e) {
-            logger()->warning('dozor.instrumentation.logs.capture_failed', [
-                'class' => $e::class,
-                'message' => $e->getMessage(),
-                'level' => (string) $event->level,
-            ]);
+        } catch (Throwable) {
         }
     }
 }

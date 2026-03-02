@@ -161,19 +161,6 @@ class DozorServiceProvider extends ServiceProvider
         $captureLogsEnabled = (bool) config('dozor.instrumentation.capture_logs', true);
         $captureEventsEnabled = (bool) config('dozor.instrumentation.capture_events', true);
 
-        logger()->info('dozor.instrumentation.hook_state', [
-            'hook' => 'outgoing_http',
-            'enabled' => $outgoingHttpEnabled,
-        ]);
-        logger()->info('dozor.instrumentation.hook_state', [
-            'hook' => 'logs',
-            'enabled' => $captureLogsEnabled,
-        ]);
-        logger()->info('dozor.instrumentation.hook_state', [
-            'hook' => 'events',
-            'enabled' => $captureEventsEnabled,
-        ]);
-
         Event::listen(QueryExecuted::class, $this->app->make(QueryWatcher::class));
         Event::listen(JobProcessing::class, [$this->app->make(QueueWatcher::class), 'started']);
         Event::listen(JobProcessed::class, [$this->app->make(QueueWatcher::class), 'finished']);
@@ -200,17 +187,22 @@ class DozorServiceProvider extends ServiceProvider
                 return;
             }
 
-            foreach ((array) config('dozor.http.groups', ['web', 'api']) as $group) {
-                try {
-                    $router->pushMiddlewareToGroup($group, TraceRequest::class);
-                } catch (Throwable $e) {
-                    logger()->debug('dozor.package.middleware_attach_skipped', [
-                        'group' => $group,
-                        'class' => $e::class,
-                        'message' => $e->getMessage(),
-                    ]);
+            $attachMiddleware = function () use ($router): void {
+                foreach ((array) config('dozor.http.groups', ['web', 'api']) as $group) {
+                    try {
+                        $router->pushMiddlewareToGroup($group, TraceRequest::class);
+                    } catch (Throwable) {
+                    }
                 }
+            };
+
+            if ($this->app->isBooted()) {
+                $attachMiddleware();
+
+                return;
             }
+
+            $this->app->booted($attachMiddleware);
         });
     }
 }

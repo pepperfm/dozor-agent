@@ -76,12 +76,7 @@ final readonly class ApplicationEventWatcher
 
         try {
             $this->core->recordApplicationEvent($eventName, $payload);
-        } catch (Throwable $e) {
-            logger()->warning('dozor.instrumentation.events.capture_failed', [
-                'event' => $eventName,
-                'class' => $e::class,
-                'message' => $e->getMessage(),
-            ]);
+        } catch (Throwable) {
         }
     }
 

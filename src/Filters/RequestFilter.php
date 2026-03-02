@@ -25,30 +25,15 @@ final readonly class RequestFilter
     public function shouldIgnoreRequest(Request $request): bool
     {
         if ($this->isIgnoredPath('/' . ltrim($request->path(), '/'))) {
-            logger()->debug('dozor.filter.request_ignored', [
-                'reason' => 'path',
-                'path' => $request->path(),
-            ]);
-
             return true;
         }
 
         $routeName = $request->route()?->getName();
         if ($this->isIgnoredRouteName($routeName)) {
-            logger()->debug('dozor.filter.request_ignored', [
-                'reason' => 'route_name',
-                'route_name' => $routeName,
-            ]);
-
             return true;
         }
 
         if ($this->isIgnoredUserAgent($request->userAgent())) {
-            logger()->debug('dozor.filter.request_ignored', [
-                'reason' => 'user_agent',
-                'user_agent' => $request->userAgent(),
-            ]);
-
             return true;
         }
 

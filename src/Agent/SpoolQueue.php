@@ -68,12 +68,6 @@ final class SpoolQueue
 
         $this->writeEnvelopeAtomically($path, $envelope);
 
-        logger()->debug('dozor.agent.shipper.batch_enqueued', [
-            'batch_id' => $batchId,
-            'queue_file' => $path,
-            'records_count' => $this->recordsCount($payload),
-        ]);
-
         return $batchId;
     }
 
@@ -118,12 +112,6 @@ final class SpoolQueue
             $payload = Arr::get($envelope, 'payload');
 
             if (!is_array($payload)) {
-                logger()->error('dozor.agent.shipper.spool_corruption', [
-                    'batch_id' => $batchId,
-                    'queue_file' => $file,
-                    'reason' => 'payload_is_not_array',
-                ]);
-
                 $this->moveToFailed($file, $batchId, 'corrupted');
 
                 continue;
@@ -135,13 +123,7 @@ final class SpoolQueue
 
             try {
                 $uploaded = $uploader($payload, $batchId, $attempt);
-            } catch (Throwable $e) {
-                logger()->error('dozor.agent.shipper.upload_callback_failed', [
-                    'batch_id' => $batchId,
-                    'attempt' => $attempt,
-                    'class' => $e::class,
-                    'message' => $e->getMessage(),
-                ]);
+            } catch (Throwable) {
             }
 
             if ($uploaded) {
@@ -149,23 +131,10 @@ final class SpoolQueue
                     @unlink($file);
                 }
 
-                logger()->info('dozor.agent.shipper.batch_uploaded', [
-                    'batch_id' => $batchId,
-                    'attempt' => $attempt,
-                    'records_count' => $this->recordsCount($payload),
-                ]);
-
                 continue;
             }
 
             if ($attempt >= $this->maxAttemptsPerBatch) {
-                logger()->warning('dozor.agent.shipper.batch_dropped', [
-                    'batch_id' => $batchId,
-                    'attempt' => $attempt,
-                    'max_attempts' => $this->maxAttemptsPerBatch,
-                    'records_count' => $this->recordsCount($payload),
-                ]);
-
                 $this->moveToFailed($file, $batchId, 'max-attempts');
 
                 continue;
@@ -177,13 +146,6 @@ final class SpoolQueue
             $envelope['last_failed_at'] = microtime(true);
 
             $this->writeEnvelopeAtomically($file, $envelope);
-
-            logger()->warning('dozor.agent.shipper.retry_scheduled', [
-                'batch_id' => $batchId,
-                'attempt' => $attempt,
-                'retry_in_ms' => $backoffMs,
-                'records_count' => $this->recordsCount($payload),
-            ]);
         }
     }
 
@@ -225,13 +187,7 @@ final class SpoolQueue
             }
 
             return $decoded;
-        } catch (Throwable $e) {
-            logger()->error('dozor.agent.shipper.spool_corruption', [
-                'queue_file' => $file,
-                'class' => $e::class,
-                'message' => $e->getMessage(),
-            ]);
-
+        } catch (Throwable) {
             return null;
         }
     }
@@ -272,30 +228,8 @@ final class SpoolQueue
         if (@rename($file, $target)) {
             $this->runtimeState?->incrementDroppedBatches($batchId, $reason);
 
-            if ($reason === 'max-attempts') {
-                logger()->warning('dozor.agent.shipper.batch_moved_to_failed', [
-                    'batch_id' => $batchId,
-                    'source_file' => $file,
-                    'target_file' => $target,
-                    'reason' => $reason,
-                ]);
-            } else {
-                logger()->error('dozor.agent.shipper.batch_moved_to_failed', [
-                    'batch_id' => $batchId,
-                    'source_file' => $file,
-                    'target_file' => $target,
-                    'reason' => $reason,
-                ]);
-            }
-
             return;
         }
-
-        logger()->error('dozor.agent.shipper.failed_move_failed', [
-            'batch_id' => $batchId,
-            'source_file' => $file,
-            'reason' => $reason,
-        ]);
     }
 
     /**
