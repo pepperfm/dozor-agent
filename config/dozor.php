@@ -10,7 +10,7 @@ return [
     'deployment' => env('DOZOR_DEPLOYMENT'),
     'release' => env('DOZOR_RELEASE', env('DOZOR_DEPLOYMENT')),
     'server' => env('DOZOR_SERVER', (string) gethostname()),
-    'capture_request_payload' => env('DOZOR_CAPTURE_REQUEST_PAYLOAD', false),
+    'capture_request_payload' => env('DOZOR_CAPTURE_REQUEST_PAYLOAD', true),
     'capture_exception_source_code' => env('DOZOR_CAPTURE_EXCEPTION_SOURCE_CODE', false),
     'redact_payload_fields' => explode(',', env('DOZOR_REDACT_PAYLOAD_FIELDS', '_token,password,password_confirmation')),
     'redact_headers' => explode(',', env('DOZOR_REDACT_HEADERS', 'Authorization,Cookie,Proxy-Authorization,X-XSRF-TOKEN')),
@@ -44,8 +44,8 @@ return [
         'outgoing_http' => env('DOZOR_INSTRUMENT_OUTGOING_HTTP', true),
         'capture_logs' => env('DOZOR_CAPTURE_LOGS', false),
         'capture_events' => env('DOZOR_CAPTURE_EVENTS', false),
-        'capture_request_headers' => env('DOZOR_CAPTURE_REQUEST_HEADERS', false),
-        'capture_outgoing_http_headers' => env('DOZOR_CAPTURE_OUTGOING_HTTP_HEADERS', false),
+        'capture_request_headers' => env('DOZOR_CAPTURE_REQUEST_HEADERS', true),
+        'capture_outgoing_http_headers' => env('DOZOR_CAPTURE_OUTGOING_HTTP_HEADERS', true),
         'event_prefixes' => array_values(array_filter(array_map('trim', explode(',', (string) env('DOZOR_EVENT_PREFIXES', 'App\\Events\\,Illuminate\\Auth\\Events\\'))))),
         'event_ignore' => array_values(array_filter(array_map('trim', explode(',', (string) env('DOZOR_EVENT_IGNORE', 'Illuminate\\Log\\Events\\MessageLogged'))))),
     ],
@@ -59,7 +59,7 @@ return [
 
     'http' => [
         'attach_middleware' => env('DOZOR_ATTACH_HTTP_MIDDLEWARE', true),
-        'groups' => explode(',', env('DOZOR_HTTP_GROUPS', 'web,api')),
+        'groups' => array_values(array_filter(array_map('trim', explode(',', (string) env('DOZOR_HTTP_GROUPS', 'web,api'))))),
     ],
 
     'ingest' => [

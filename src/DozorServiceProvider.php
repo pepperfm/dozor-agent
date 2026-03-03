@@ -10,11 +10,15 @@ use Dozor\Console\StatusCommand;
 use Dozor\Contracts\DozorContract as CoreContract;
 use Dozor\Contracts\IngestContract as IngestContract;
 use Dozor\Http\Middleware\TraceRequest;
+use Dozor\Watchers\CacheWatcher;
 use Dozor\Watchers\ApplicationEventWatcher;
 use Dozor\Watchers\HttpWatcher;
 use Dozor\Watchers\LogWatcher;
 use Dozor\Watchers\QueueWatcher;
 use Dozor\Watchers\QueryWatcher;
+use Illuminate\Cache\Events\CacheHit;
+use Illuminate\Cache\Events\CacheMissed;
+use Illuminate\Cache\Events\KeyWritten;
 use Illuminate\Contracts\Config\Repository;
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Database\Events\QueryExecuted;
@@ -80,6 +84,10 @@ class DozorServiceProvider extends ServiceProvider
         $this->app->singleton(
             QueueWatcher::class,
             static fn(Application $app) => new QueueWatcher($app->make(CoreContract::class))
+        );
+        $this->app->singleton(
+            CacheWatcher::class,
+            static fn(Application $app) => new CacheWatcher($app->make(CoreContract::class))
         );
         $this->app->singleton(
             TraceRequest::class,
@@ -165,6 +173,9 @@ class DozorServiceProvider extends ServiceProvider
         Event::listen(JobProcessing::class, [$this->app->make(QueueWatcher::class), 'started']);
         Event::listen(JobProcessed::class, [$this->app->make(QueueWatcher::class), 'finished']);
         Event::listen(JobFailed::class, [$this->app->make(QueueWatcher::class), 'finished']);
+        Event::listen(CacheHit::class, [$this->app->make(CacheWatcher::class), 'hit']);
+        Event::listen(CacheMissed::class, [$this->app->make(CacheWatcher::class), 'missed']);
+        Event::listen(KeyWritten::class, [$this->app->make(CacheWatcher::class), 'written']);
 
         if ($outgoingHttpEnabled) {
             Event::listen(RequestSending::class, [$this->app->make(HttpWatcher::class), 'requestSending']);
@@ -189,10 +200,15 @@ class DozorServiceProvider extends ServiceProvider
 
             $attachMiddleware = function () use ($router): void {
                 foreach ((array) config('dozor.http.groups', ['web', 'api']) as $group) {
-                    try {
-                        $router->pushMiddlewareToGroup($group, TraceRequest::class);
-                    } catch (Throwable) {
+                    if (!is_string($group) || $group === '') {
+                        continue;
                     }
+
+                    if (!method_exists($router, 'hasMiddlewareGroup') || !$router->hasMiddlewareGroup($group)) {
+                        continue;
+                    }
+
+                    $router->pushMiddlewareToGroup($group, TraceRequest::class);
                 }
             };
 

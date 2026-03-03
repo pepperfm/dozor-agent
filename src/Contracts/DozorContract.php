@@ -16,7 +16,7 @@ interface DozorContract
 {
     public function enabled(): bool;
 
-    public function beginRequest(Request $request): TraceContext;
+    public function beginRequest(Request $request, ?float $startedAt = null): TraceContext;
 
     public function finishRequest(
         Request $request,
@@ -32,6 +32,16 @@ interface DozorContract
     public function recordJobFinished(JobProcessed|JobFailed $event): void;
 
     /**
+     * @param array<string, mixed> $metadata
+     */
+    public function beginLifecycleStage(string $stage, array $metadata = []): void;
+
+    /**
+     * @param array<string, mixed> $metadata
+     */
+    public function endLifecycleStage(string $stage, array $metadata = []): void;
+
+    /**
      * @param array<string, mixed> $context
      */
     public function recordException(Throwable $e, array $context = []): void;
@@ -40,6 +50,11 @@ interface DozorContract
      * @param array<string, mixed> $payload
      */
     public function recordOutgoingHttp(array $payload): void;
+
+    /**
+     * @param array<string, mixed> $payload
+     */
+    public function recordCacheEvent(array $payload): void;
 
     /**
      * @param array<string, mixed> $context

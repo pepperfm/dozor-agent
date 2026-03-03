@@ -10,6 +10,7 @@ use Dozor\Context\TraceContext;
 use Dozor\Filters\RequestFilter;
 use Dozor\Redaction\PayloadRedactor;
 use Dozor\Sampling\DeterministicSampler;
+use Dozor\Tracing\RequestLifecycleStage;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Http\Request;
 use Illuminate\Queue\Events\JobFailed;
@@ -18,6 +19,7 @@ use Illuminate\Queue\Events\JobProcessing;
 use Illuminate\Support\Arr;
 use Throwable;
 
+use function hash;
 use function in_array;
 use function is_array;
 use function is_numeric;
@@ -25,6 +27,7 @@ use function is_string;
 use function max;
 use function mb_substr;
 use function round;
+use function substr;
 use function str_starts_with;
 
 class Dozor implements DozorContract
@@ -77,7 +80,7 @@ class Dozor implements DozorContract
         return Arr::get($this->config, $key, $default);
     }
 
-    public function beginRequest(Request $request): TraceContext
+    public function beginRequest(Request $request, ?float $startedAt = null): TraceContext
     {
         $traceId = $this->makeTraceId();
         $route = $request->route();
@@ -114,11 +117,55 @@ class Dozor implements DozorContract
             $requestMeta['headers'] = $this->redactor->redactHeaders($request->headers->all());
         }
 
+        $startedAt ??= microtime(true);
+
         return $this->currentTrace = new TraceContext(
             traceId: $traceId,
-            startedAt: microtime(true),
+            startedAt: $startedAt,
             requestMeta: $requestMeta,
         );
+    }
+
+    /**
+     * @param array<string, mixed> $metadata
+     */
+    public function beginLifecycleStage(string $stage, array $metadata = []): void
+    {
+        if ($this->currentRequestSuppressed) {
+            return;
+        }
+
+        $resolvedStage = RequestLifecycleStage::fromName($stage);
+        if ($resolvedStage === null) {
+            return;
+        }
+
+        if (!$resolvedStage->isRequestPhase()) {
+            return;
+        }
+
+        $this->currentTrace?->beginLifecycleStage($resolvedStage->value, $metadata);
+    }
+
+    /**
+     * @param array<string, mixed> $metadata
+     */
+    public function endLifecycleStage(string $stage, array $metadata = []): void
+    {
+        if ($this->currentRequestSuppressed) {
+            return;
+        }
+
+        $resolvedStage = RequestLifecycleStage::fromName($stage);
+        if ($resolvedStage === null) {
+            return;
+        }
+
+        if (!$resolvedStage->isRequestPhase()) {
+            return;
+        }
+
+        $this->currentTrace?->endLifecycleStage($resolvedStage->value, $metadata);
     }
 
     public function finishRequest(
@@ -139,6 +186,11 @@ class Dozor implements DozorContract
             return;
         }
 
+        $this->endLifecycleStage(RequestLifecycleStage::Sending->value);
+        $this->beginLifecycleStage(RequestLifecycleStage::Terminating->value);
+        $this->endLifecycleStage(RequestLifecycleStage::Terminating->value);
+        $this->currentTrace?->closeOpenLifecycleStages();
+
         $traceId = $this->currentTrace?->traceId ?? $this->makeTraceId();
         $durationMs = round((microtime(true) - $startedAt) * 1000, 2);
         $status = method_exists($response, 'getStatusCode') ? $response->getStatusCode() : ($e ? 500 : 200);
@@ -148,6 +200,7 @@ class Dozor implements DozorContract
             'duration_ms' => $durationMs,
             'request_id' => $request->headers->get('X-Request-Id'),
             'memory_peak_bytes' => memory_get_peak_usage(true),
+            'lifecycle_stages' => $this->currentTrace?->lifecycleStages() ?? [],
         ]);
 
         if ((bool) $this->config('capture_request_payload', false) && !$this->config('filtering.ignore_request_payload', false)) {
@@ -201,12 +254,12 @@ class Dozor implements DozorContract
             'app' => $this->config('app_name'),
             'environment' => $this->config('environment'),
             'server' => $this->config('server'),
-            'payload' => [
+            'payload' => $this->attachSpanOffsets([
                 'sql' => $captureSql ? mb_substr($event->sql, 0, $sqlMaxLength) : '[REDACTED_SQL]',
                 'time_ms' => (float) $event->time,
                 'connection' => $event->connectionName,
                 'bindings_count' => count($event->bindings),
-            ],
+            ], durationMs: (int) round((float) $event->time)),
         ]);
     }
 
@@ -243,7 +296,7 @@ class Dozor implements DozorContract
             'app' => $this->config('app_name'),
             'environment' => $this->config('environment'),
             'server' => $this->config('server'),
-            'payload' => [
+            'payload' => $this->attachSpanOffsets([
                 'name' => $event->job->resolveName(),
                 'queue' => $event->job->getQueue(),
                 'connection' => $event->connectionName,
@@ -253,7 +306,7 @@ class Dozor implements DozorContract
                     'class' => $event->exception::class,
                     'message' => $event->exception->getMessage(),
                 ] : null,
-            ],
+            ]),
         ]);
     }
 
@@ -280,6 +333,8 @@ class Dozor implements DozorContract
             'line' => $e->getLine(),
             'context' => $this->sanitizePayload($context),
         ];
+
+        $payload = $this->attachSpanOffsets($payload);
 
         if ((bool) $this->config('capture_exception_source_code', false)) {
             $payload['snippet'] = $this->sourceSnippet($e->getFile(), $e->getLine());
@@ -328,7 +383,42 @@ class Dozor implements DozorContract
             'app' => $this->config('app_name'),
             'environment' => $this->config('environment'),
             'server' => $this->config('server'),
-            'payload' => $payload,
+            'payload' => $this->attachSpanOffsets($payload),
+        ]);
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     */
+    public function recordCacheEvent(array $payload): void
+    {
+        if (!$this->enabled() || $this->currentRequestSuppressed) {
+            return;
+        }
+
+        $traceId = $this->currentTrace?->traceId ?? $this->makeTraceId();
+        $operation = Arr::get($payload, 'operation');
+        $operation = is_string($operation) && $operation !== '' ? $operation : 'unknown';
+        $cacheKey = Arr::get($payload, 'key');
+        $cacheKey = is_string($cacheKey) ? $cacheKey : '';
+        $samplingKey = $traceId . '|' . $operation . '|' . $cacheKey;
+
+        if (!$this->sampler->shouldSample('events', $samplingKey)) {
+            return;
+        }
+
+        $this->report([
+            'type' => 'cache',
+            'trace_id' => $traceId,
+            'happened_at' => $this->isoTime(),
+            'app' => $this->config('app_name'),
+            'environment' => $this->config('environment'),
+            'server' => $this->config('server'),
+            'payload' => $this->attachSpanOffsets([
+                'operation' => $operation,
+                'key_hash' => $cacheKey !== '' ? substr(hash('xxh128', $cacheKey), 0, 24) : null,
+                'store' => Arr::get($payload, 'store'),
+            ]),
         ]);
     }
 
@@ -359,11 +449,11 @@ class Dozor implements DozorContract
                 'app' => $this->config('app_name'),
                 'environment' => $this->config('environment'),
                 'server' => $this->config('server'),
-                'payload' => [
+                'payload' => $this->attachSpanOffsets([
                     'level' => $level,
                     'message' => mb_substr($message, 0, 3000),
                     'context' => $this->sanitizePayload($context),
-                ],
+                ]),
             ]);
         } finally {
             $this->capturingLogs = false;
@@ -390,10 +480,10 @@ class Dozor implements DozorContract
             'app' => $this->config('app_name'),
             'environment' => $this->config('environment'),
             'server' => $this->config('server'),
-            'payload' => [
+            'payload' => $this->attachSpanOffsets([
                 'name' => $eventName,
                 'data' => $this->sanitizePayload($payload),
-            ],
+            ]),
         ]);
     }
 
@@ -479,7 +569,39 @@ class Dozor implements DozorContract
 
     private function isoTime(): string
     {
-        return now()->toIso8601String();
+        return now()->format('Y-m-d\TH:i:s.uP');
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     *
+     * @return array<string, mixed>
+     */
+    private function attachSpanOffsets(array $payload, ?int $durationMs = null): array
+    {
+        $trace = $this->currentTrace;
+        if ($trace === null) {
+            return $payload;
+        }
+
+        $endOffsetMs = $trace->offsetMsAt();
+        $resolvedDurationMs = $durationMs;
+        if ($resolvedDurationMs === null && is_numeric(Arr::get($payload, 'duration_ms'))) {
+            $resolvedDurationMs = max(1, (int) round((float) Arr::get($payload, 'duration_ms', 1)));
+        }
+
+        if ($resolvedDurationMs !== null) {
+            $resolvedDurationMs = max(1, $resolvedDurationMs);
+            $payload['duration_ms'] = $resolvedDurationMs;
+            $payload['start_offset_ms'] = max(0, $endOffsetMs - $resolvedDurationMs);
+            $payload['end_offset_ms'] = $endOffsetMs;
+
+            return $payload;
+        }
+
+        $payload['start_offset_ms'] = $endOffsetMs;
+
+        return $payload;
     }
 
     private function jobKey(JobProcessing|JobProcessed|JobFailed $event): string

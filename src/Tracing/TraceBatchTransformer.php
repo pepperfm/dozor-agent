@@ -10,11 +10,18 @@ use Throwable;
 
 use function array_values;
 use function count;
+use function implode;
 use function is_array;
+use function is_bool;
+use function is_float;
+use function is_int;
 use function is_numeric;
 use function is_string;
+use function json_encode;
 use function max;
 use function mb_substr;
+use function mb_strtoupper;
+use function mb_strlen;
 use function round;
 
 final class TraceBatchTransformer
@@ -103,6 +110,10 @@ final class TraceBatchTransformer
         $rootPayload = Arr::get($rootRecord, 'payload', []);
         $rootType = (string) Arr::get($rootRecord, 'type', 'custom');
         $startedAt = $this->resolveStartedAt($rootRecord, $records);
+        $dbTimeMs = $this->sumQueryTime($records);
+        $externalTimeMs = $this->sumOutgoingHttpTime($records);
+        $jobTimeMs = $this->sumJobTime($records);
+        $durationMs = $this->resolveDurationMs($rootRecord, $records, $dbTimeMs, $externalTimeMs, $jobTimeMs);
         $traceId = str()->ulid()->toString();
         $spans = [];
         $droppedSpans = 0;
@@ -115,6 +126,21 @@ final class TraceBatchTransformer
         $rootSpanId = is_array($rootSpan) && is_string(Arr::get($rootSpan, 'id'))
             ? (string) Arr::get($rootSpan, 'id')
             : null;
+        [
+            'spans' => $lifecycleSpans,
+            'phase_span_ids' => $phaseSpanIds,
+            'phase_ranges' => $phaseRanges,
+        ] = $this->buildLifecyclePhaseSpans($rootPayload, $durationMs, $rootSpanId, $rootType);
+
+        foreach ($lifecycleSpans as $lifecycleSpan) {
+            if (count($spans) >= $this->maxSpansPerTrace) {
+                $droppedSpans++;
+
+                break;
+            }
+
+            $spans[] = $lifecycleSpan;
+        }
 
         $traceException = $this->extractException($rootRecord);
 
@@ -123,9 +149,41 @@ final class TraceBatchTransformer
                 continue;
             }
 
-            $span = $this->buildSpanFromRecord($record, $startedAt, $rootSpanId);
+            $type = (string) Arr::get($record, 'type', 'custom');
+            $recordPayload = Arr::get($record, 'payload', []);
+            $recordDurationMs = is_array($recordPayload)
+                ? $this->resolveRecordDurationMs($type, $recordPayload)
+                : 1;
+            $happenedAt = Arr::get($record, 'happened_at');
+            $offsetMs = $this->resolveOffsetMs(
+                is_string($happenedAt) ? $happenedAt : null,
+                $startedAt,
+                is_array($recordPayload) ? $recordPayload : [],
+            );
+            [
+                'span_id' => $parentSpanId,
+                'phase' => $phaseName,
+            ] = $this->resolveParentSpanForRecord(
+                $type,
+                $offsetMs,
+                $recordDurationMs,
+                $phaseSpanIds,
+                $phaseRanges,
+                $rootSpanId,
+            );
+
+            $span = $this->buildSpanFromRecord($record, $offsetMs, $parentSpanId);
             if ($span === null) {
                 continue;
+            }
+
+            if ($phaseName !== null) {
+                $metadata = Arr::get($span, 'metadata', []);
+
+                if (is_array($metadata)) {
+                    $metadata['lifecycle_phase'] = $phaseName;
+                    $span['metadata'] = $metadata;
+                }
             }
 
             if (count($spans) >= $this->maxSpansPerTrace) {
@@ -140,15 +198,17 @@ final class TraceBatchTransformer
                 $traceException = $this->extractException($record);
             }
         }
-
-        $dbTimeMs = $this->sumQueryTime($records);
-        $externalTimeMs = $this->sumOutgoingHttpTime($records);
-        $jobTimeMs = $this->sumJobTime($records);
-        $durationMs = $this->resolveDurationMs($rootRecord, $records, $dbTimeMs, $externalTimeMs, $jobTimeMs);
         $requestId = Arr::get($rootPayload, 'request_id');
         $release = Arr::get($rootRecord, 'release', Arr::get($rootRecord, 'deployment'));
         $controller = $this->resolveController($rootPayload);
         $middleware = $this->resolveMiddleware($rootPayload);
+        $hasLifecycle = count($phaseSpanIds) > 0;
+        ['headers' => $requestHeaders, 'truncated' => $requestHeadersTruncated] = $this->boundedHeaders(
+            Arr::get($rootPayload, 'headers', []),
+        );
+        ['preview' => $requestPayloadPreview, 'truncated' => $requestPayloadPreviewTruncated] = $this->boundedPayloadPreview(
+            Arr::get($rootPayload, 'request_payload'),
+        );
 
         return [
             'id' => $traceId,
@@ -178,6 +238,12 @@ final class TraceBatchTransformer
                 'records_count' => count($records),
                 'middleware' => $middleware,
                 'route_name' => Arr::get($rootPayload, 'route_name'),
+                'request_headers' => $requestHeaders,
+                'request_headers_truncated' => $requestHeadersTruncated,
+                'request_payload_preview' => $requestPayloadPreview,
+                'request_payload_preview_truncated' => $requestPayloadPreviewTruncated,
+                'lifecycle_ready' => $hasLifecycle,
+                'lifecycle_stages' => Arr::get($rootPayload, 'lifecycle_stages', []),
             ],
             'exception' => $traceException,
         ];
@@ -265,19 +331,13 @@ final class TraceBatchTransformer
     /**
      * @return array<string, mixed>|null
      */
-    private function buildSpanFromRecord(array $record, string $traceStartedAt, ?string $parentSpanId): ?array
+    private function buildSpanFromRecord(array $record, int $offsetMs, ?string $parentSpanId): ?array
     {
         $type = (string) Arr::get($record, 'type', 'custom');
         $payload = Arr::get($record, 'payload', []);
         if (!is_array($payload)) {
             return null;
         }
-
-        $happenedAt = Arr::get($record, 'happened_at');
-        $offsetMs = $this->resolveOffsetMs(
-            is_string($happenedAt) ? $happenedAt : null,
-            $traceStartedAt,
-        );
 
         return match ($type) {
             'outgoing_http' => [
@@ -295,11 +355,25 @@ final class TraceBatchTransformer
                 'queue' => null,
                 'method' => is_string(Arr::get($payload, 'method')) ? Arr::get($payload, 'method') : null,
                 'status_code' => is_numeric(Arr::get($payload, 'status_code')) ? (int) Arr::get($payload, 'status_code') : null,
-                'metadata' => [
-                    'failed' => (bool) Arr::get($payload, 'failed', false),
-                    'error_class' => Arr::get($payload, 'error_class'),
-                    'error_message' => Arr::get($payload, 'error_message'),
-                ],
+                'metadata' => (function () use ($payload): array {
+                    ['headers' => $requestHeaders, 'truncated' => $requestHeadersTruncated] = $this->boundedHeaders(
+                        Arr::get($payload, 'request_headers', []),
+                    );
+                    ['headers' => $responseHeaders, 'truncated' => $responseHeadersTruncated] = $this->boundedHeaders(
+                        Arr::get($payload, 'response_headers', []),
+                    );
+
+                    return [
+                        'url' => Arr::get($payload, 'url'),
+                        'failed' => (bool) Arr::get($payload, 'failed', false),
+                        'error_class' => Arr::get($payload, 'error_class'),
+                        'error_message' => Arr::get($payload, 'error_message'),
+                        'request_headers' => $requestHeaders,
+                        'request_headers_truncated' => $requestHeadersTruncated,
+                        'response_headers' => $responseHeaders,
+                        'response_headers_truncated' => $responseHeadersTruncated,
+                    ];
+                })(),
             ],
             'query' => [
                 'id' => str()->ulid()->toString(),
@@ -337,6 +411,27 @@ final class TraceBatchTransformer
                 'status_code' => null,
                 'metadata' => [
                     'status' => Arr::get($payload, 'status'),
+                ],
+            ],
+            'cache' => [
+                'id' => str()->ulid()->toString(),
+                'parent_span_id' => $parentSpanId,
+                'kind' => 'cache',
+                'name' => 'CACHE ' . mb_strtoupper((string) Arr::get($payload, 'operation', 'unknown')),
+                'start_offset_ms' => $offsetMs,
+                'duration_ms' => max(1, (int) round($this->resolveNumeric($payload, ['duration_ms'], 1))),
+                'connection' => null,
+                'normalized_signature' => null,
+                'sql_text' => null,
+                'rows_count' => null,
+                'service' => is_string(Arr::get($payload, 'store')) ? Arr::get($payload, 'store') : null,
+                'queue' => null,
+                'method' => null,
+                'status_code' => null,
+                'metadata' => [
+                    'operation' => Arr::get($payload, 'operation'),
+                    'key_hash' => Arr::get($payload, 'key_hash'),
+                    'store' => Arr::get($payload, 'store'),
                 ],
             ],
             'exception' => [
@@ -410,6 +505,277 @@ final class TraceBatchTransformer
                 'metadata' => $payload,
             ],
         };
+    }
+
+    /**
+     * @param array<string, mixed> $rootPayload
+     *
+     * @param array<string, mixed> $rootPayload
+     *
+     * @return array{
+     *     spans: array<int, array<string, mixed>>,
+     *     phase_span_ids: array<string, string>,
+     *     phase_ranges: array<string, array{start: int, end: int}>
+     * }
+     */
+    private function buildLifecyclePhaseSpans(
+        array $rootPayload,
+        int $durationMs,
+        ?string $rootSpanId,
+        string $rootType,
+    ): array
+    {
+        $stages = $this->resolveLifecycleStages($rootPayload, $durationMs, $rootType);
+        $spans = [];
+        $phaseSpanIds = [];
+        $phaseRanges = [];
+
+        foreach ($stages as $stage) {
+            $stageName = Arr::get($stage, 'name');
+            if (!is_string($stageName) || $stageName === '') {
+                continue;
+            }
+
+            $startOffsetMs = max(0, (int) Arr::get($stage, 'start_offset_ms', 0));
+            $stageDurationMs = max(1, (int) Arr::get($stage, 'duration_ms', 1));
+            $metadata = Arr::get($stage, 'metadata', []);
+
+            $phaseSpanId = str()->ulid()->toString();
+
+            $spans[] = [
+                'id' => $phaseSpanId,
+                'parent_span_id' => $rootSpanId,
+                'kind' => 'lifecycle',
+                'name' => mb_strtoupper($stageName),
+                'start_offset_ms' => $startOffsetMs,
+                'duration_ms' => $stageDurationMs,
+                'connection' => null,
+                'normalized_signature' => null,
+                'sql_text' => null,
+                'rows_count' => null,
+                'service' => null,
+                'queue' => null,
+                'method' => null,
+                'status_code' => null,
+                'metadata' => [
+                    'phase' => $stageName,
+                    'phase_meta' => is_array($metadata) ? $metadata : [],
+                ],
+            ];
+
+            $phaseSpanIds[$stageName] = $phaseSpanId;
+            $phaseRanges[$stageName] = [
+                'start' => $startOffsetMs,
+                'end' => $startOffsetMs + $stageDurationMs - 1,
+            ];
+        }
+
+        $middleware = $this->resolveMiddleware($rootPayload);
+        $middlewarePhaseId = $phaseSpanIds[RequestLifecycleStage::Middleware->value] ?? null;
+        $middlewarePhaseRange = $phaseRanges[RequestLifecycleStage::Middleware->value] ?? null;
+
+        if (
+            is_string($middlewarePhaseId)
+            && is_array($middlewarePhaseRange)
+            && $middleware !== []
+        ) {
+            $phaseStart = max(0, (int) Arr::get($middlewarePhaseRange, 'start', 0));
+            $phaseEnd = max($phaseStart, (int) Arr::get($middlewarePhaseRange, 'end', $phaseStart));
+            $phaseDuration = max(1, $phaseEnd - $phaseStart + 1);
+            $middlewareCount = count($middleware);
+            $slotDuration = max(1, (int) floor($phaseDuration / max(1, $middlewareCount)));
+
+            foreach ($middleware as $index => $item) {
+                $middlewareStart = $phaseStart + ($slotDuration * $index);
+                $middlewareDuration = $index === $middlewareCount - 1
+                    ? max(1, ($phaseStart + $phaseDuration) - $middlewareStart)
+                    : $slotDuration;
+
+                $spans[] = [
+                    'id' => str()->ulid()->toString(),
+                    'parent_span_id' => $middlewarePhaseId,
+                    'kind' => 'middleware',
+                    'name' => mb_strtoupper($item),
+                    'start_offset_ms' => $middlewareStart,
+                    'duration_ms' => $middlewareDuration,
+                    'connection' => null,
+                    'normalized_signature' => null,
+                    'sql_text' => null,
+                    'rows_count' => null,
+                    'service' => null,
+                    'queue' => null,
+                    'method' => null,
+                    'status_code' => null,
+                    'metadata' => [
+                        'phase' => RequestLifecycleStage::Middleware->value,
+                        'middleware' => $item,
+                    ],
+                ];
+            }
+        }
+
+        return [
+            'spans' => $spans,
+            'phase_span_ids' => $phaseSpanIds,
+            'phase_ranges' => $phaseRanges,
+        ];
+    }
+
+    /**
+     * @return array<int, array{name: string, start_offset_ms: int, duration_ms: int, metadata: array<string, mixed>}>
+     */
+    private function resolveLifecycleStages(array $rootPayload, int $durationMs, string $rootType): array
+    {
+        if ($rootType !== 'request') {
+            return [];
+        }
+
+        $maxDuration = max(1, $durationMs);
+        $providedStages = Arr::get($rootPayload, 'lifecycle_stages', []);
+        $resolvedStages = [];
+
+        if (is_array($providedStages)) {
+            foreach ($providedStages as $stage) {
+                if (!is_array($stage)) {
+                    continue;
+                }
+
+                $stageName = Arr::get($stage, 'name');
+                if (!is_string($stageName)) {
+                    continue;
+                }
+
+                $resolvedStage = RequestLifecycleStage::fromName($stageName);
+                if ($resolvedStage === null || !$resolvedStage->isRequestPhase()) {
+                    continue;
+                }
+
+                $startOffsetMs = max(0, (int) Arr::get($stage, 'start_offset_ms', 0));
+                if ($startOffsetMs >= $maxDuration) {
+                    $startOffsetMs = max(0, $maxDuration - 1);
+                }
+
+                $stageDurationMs = max(1, (int) Arr::get($stage, 'duration_ms', 1));
+                if ($startOffsetMs + $stageDurationMs > $maxDuration) {
+                    $stageDurationMs = max(1, $maxDuration - $startOffsetMs);
+                }
+
+                $metadata = Arr::get($stage, 'metadata', []);
+                $resolvedStages[$resolvedStage->value] = [
+                    'name' => $resolvedStage->value,
+                    'start_offset_ms' => $startOffsetMs,
+                    'duration_ms' => $stageDurationMs,
+                    'metadata' => is_array($metadata) ? $metadata : [],
+                ];
+            }
+        }
+
+        if ($resolvedStages === []) {
+            return [];
+        }
+
+        $ordered = [];
+        foreach ($this->requestPhaseOrder() as $phaseName) {
+            $stage = $resolvedStages[$phaseName] ?? null;
+            if (is_array($stage)) {
+                $ordered[] = $stage;
+            }
+        }
+
+        return $ordered;
+    }
+
+    /**
+     * @param array<string, string> $phaseSpanIds
+     * @param array<string, array{start: int, end: int}> $phaseRanges
+     *
+     * @return array{span_id: ?string, phase: ?string}
+     */
+    private function resolveParentSpanForRecord(
+        string $type,
+        int $offsetMs,
+        int $durationMs,
+        array $phaseSpanIds,
+        array $phaseRanges,
+        ?string $rootSpanId,
+    ): array {
+        $durationMs = max(1, $durationMs);
+        $preferredPhase = $this->preferredPhaseForRecord($type);
+        $phaseFromOffset = null;
+        $recordEndOffsetMs = max($offsetMs, $offsetMs + $durationMs - 1);
+
+        foreach ($this->requestPhaseOrder() as $phaseName) {
+            $range = $phaseRanges[$phaseName] ?? null;
+            if (!is_array($range)) {
+                continue;
+            }
+
+            $rangeStart = max(0, (int) Arr::get($range, 'start', 0));
+            $rangeEnd = max($rangeStart, (int) Arr::get($range, 'end', $rangeStart));
+
+            if ($offsetMs >= $rangeStart && $recordEndOffsetMs <= $rangeEnd) {
+                $phaseFromOffset = $phaseName;
+
+                break;
+            }
+        }
+
+        $phase = null;
+        if ($preferredPhase !== null && isset($phaseSpanIds[$preferredPhase])) {
+            $phase = $preferredPhase;
+        } elseif ($phaseFromOffset !== null && isset($phaseSpanIds[$phaseFromOffset])) {
+            $phase = $phaseFromOffset;
+        } elseif (isset($phaseSpanIds[RequestLifecycleStage::Controller->value])) {
+            $phase = RequestLifecycleStage::Controller->value;
+        }
+
+        return [
+            'span_id' => $phase !== null ? ($phaseSpanIds[$phase] ?? $rootSpanId) : $rootSpanId,
+            'phase' => $phase,
+        ];
+    }
+
+    private function preferredPhaseForRecord(string $type): ?string
+    {
+        return match ($type) {
+            'query',
+            'outgoing_http',
+            'cache',
+            'job',
+            'exception',
+            'event',
+            'log' => RequestLifecycleStage::Controller->value,
+            default => null,
+        };
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     */
+    private function resolveRecordDurationMs(string $type, array $payload): int
+    {
+        return match ($type) {
+            'query' => max(1, (int) round($this->resolveNumeric($payload, ['time_ms'], 1))),
+            'outgoing_http',
+            'job',
+            'cache' => max(1, (int) round($this->resolveNumeric($payload, ['duration_ms'], 1))),
+            default => max(1, (int) round($this->resolveNumeric($payload, ['duration_ms', 'time_ms'], 1))),
+        };
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function requestPhaseOrder(): array
+    {
+        return [
+            RequestLifecycleStage::Bootstrap->value,
+            RequestLifecycleStage::Middleware->value,
+            RequestLifecycleStage::Controller->value,
+            RequestLifecycleStage::Render->value,
+            RequestLifecycleStage::Sending->value,
+            RequestLifecycleStage::Terminating->value,
+        ];
     }
 
     /**
@@ -839,8 +1205,24 @@ final class TraceBatchTransformer
         return mb_substr($sql, 0, 80);
     }
 
-    private function resolveOffsetMs(?string $eventHappenedAt, string $traceStartedAt): int
+    /**
+     * @param array<string, mixed> $payload
+     */
+    private function resolveOffsetMs(?string $eventHappenedAt, string $traceStartedAt, array $payload = []): int
     {
+        $payloadStartOffsetMs = Arr::get($payload, 'start_offset_ms');
+        if (is_numeric($payloadStartOffsetMs)) {
+            return max(0, (int) round((float) $payloadStartOffsetMs));
+        }
+
+        $payloadEndOffsetMs = Arr::get($payload, 'end_offset_ms');
+        if (is_numeric($payloadEndOffsetMs)) {
+            $durationMs = max(1, (int) round($this->resolveNumeric($payload, ['duration_ms', 'time_ms'], 1)));
+            $endOffsetMs = max(0, (int) round((float) $payloadEndOffsetMs));
+
+            return max(0, $endOffsetMs - $durationMs);
+        }
+
         if ($eventHappenedAt === null || $eventHappenedAt === '') {
             return 0;
         }
@@ -869,5 +1251,130 @@ final class TraceBatchTransformer
         }
 
         return $default;
+    }
+
+    /**
+     * @return array{headers: array<string, string>, truncated: bool}
+     */
+    private function boundedHeaders(mixed $headers): array
+    {
+        if (!is_array($headers)) {
+            return ['headers' => [], 'truncated' => false];
+        }
+
+        $maxHeadersCount = 32;
+        $maxHeaderKeyLength = 64;
+        $maxHeaderValueLength = 512;
+        $normalized = [];
+        $truncated = false;
+
+        foreach ($headers as $key => $value) {
+            if (count($normalized) >= $maxHeadersCount) {
+                $truncated = true;
+
+                break;
+            }
+
+            if (!is_string($key) || $key === '') {
+                continue;
+            }
+
+            $normalizedKey = mb_substr($key, 0, $maxHeaderKeyLength);
+            $normalizedValue = $this->headerValueToString($value);
+
+            if ($normalizedValue === '') {
+                continue;
+            }
+
+            if (mb_strlen($key) > $maxHeaderKeyLength) {
+                $truncated = true;
+            }
+
+            if (mb_strlen($normalizedValue) > $maxHeaderValueLength) {
+                $normalizedValue = mb_substr($normalizedValue, 0, $maxHeaderValueLength);
+                $truncated = true;
+            }
+
+            $normalized[$normalizedKey] = $normalizedValue;
+        }
+
+        return ['headers' => $normalized, 'truncated' => $truncated];
+    }
+
+    /**
+     * @return array{preview: ?string, truncated: bool}
+     */
+    private function boundedPayloadPreview(mixed $payload): array
+    {
+        if ($payload === null) {
+            return ['preview' => null, 'truncated' => false];
+        }
+
+        $maxPreviewLength = 2048;
+        $preview = null;
+        $truncated = false;
+
+        if (is_string($payload)) {
+            $preview = $payload;
+        } elseif (is_array($payload)) {
+            $encoded = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+            $preview = is_string($encoded) ? $encoded : null;
+        } elseif (is_bool($payload)) {
+            $preview = $payload ? 'true' : 'false';
+        } elseif (is_int($payload) || is_float($payload)) {
+            $preview = (string) $payload;
+        }
+
+        if ($preview === null || $preview === '') {
+            return ['preview' => null, 'truncated' => false];
+        }
+
+        if (mb_strlen($preview) > $maxPreviewLength) {
+            $preview = mb_substr($preview, 0, $maxPreviewLength);
+            $truncated = true;
+        }
+
+        return ['preview' => $preview, 'truncated' => $truncated];
+    }
+
+    private function headerValueToString(mixed $value): string
+    {
+        if (is_string($value)) {
+            return $value;
+        }
+
+        if (is_bool($value)) {
+            return $value ? 'true' : 'false';
+        }
+
+        if (is_int($value) || is_float($value)) {
+            return (string) $value;
+        }
+
+        if (is_array($value)) {
+            $fragments = [];
+
+            foreach ($value as $item) {
+                if (is_string($item)) {
+                    $fragments[] = $item;
+
+                    continue;
+                }
+
+                if (is_bool($item)) {
+                    $fragments[] = $item ? 'true' : 'false';
+
+                    continue;
+                }
+
+                if (is_int($item) || is_float($item)) {
+                    $fragments[] = (string) $item;
+                }
+            }
+
+            return implode(', ', $fragments);
+        }
+
+        return '';
     }
 }
