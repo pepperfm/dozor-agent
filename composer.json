@@ -1,5 +1,5 @@
 {
-  "name": "dozor/dozor-agent",
+  "name": "pepperfm/dozor-agent",
   "description": "Self-hostable Laravel instrumentation and local agent starter inspired by laravel/nightwatch.",
   "keywords": ["laravel", "monitoring", "apm", "observability", "dozor"],
   "homepage": "https://example.com/dozor",
