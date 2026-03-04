@@ -28,7 +28,7 @@ final class RecordsBuffer implements Countable
     public function write(array $record): void
     {
         if ($this->full) {
-            \array_shift($this->records);
+            array_shift($this->records);
         }
 
         $this->records[] = $record;
@@ -38,7 +38,7 @@ final class RecordsBuffer implements Countable
 
     public function count(): int
     {
-        return \count($this->records);
+        return count($this->records);
     }
 
     /**

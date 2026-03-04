@@ -20,8 +20,8 @@ final class IngestResilienceIntegrationTest extends TestCase
         $listenOn = '127.0.0.1:' . $this->findFreePort();
         $tokenHash = 'resilience-token-hash';
 
-        \fwrite(
-            \fopen($scriptPath, 'wb'),
+        fwrite(
+            fopen($scriptPath, 'wb'),
             <<<'PHP'
 <?php
 
@@ -45,17 +45,17 @@ $server->run();
 PHP
         );
 
-        $command = \sprintf(
+        $command = sprintf(
             'php %s %s %s %s %s',
-            \escapeshellarg($scriptPath),
-            \escapeshellarg($listenOn),
-            \escapeshellarg($tokenHash),
-            \escapeshellarg($storePath),
-            \escapeshellarg(\dirname(__DIR__, 2)),
+            escapeshellarg($scriptPath),
+            escapeshellarg($listenOn),
+            escapeshellarg($tokenHash),
+            escapeshellarg($storePath),
+            escapeshellarg(dirname(__DIR__, 2)),
         );
 
         $pipes = [];
-        $process = \proc_open(
+        $process = proc_open(
             $command,
             [
                 0 => ['pipe', 'r'],
@@ -65,7 +65,7 @@ PHP
             $pipes
         );
 
-        self::assertTrue(\is_resource($process));
+        self::assertTrue(is_resource($process));
 
         try {
             $socketFactory = new SocketStreamFactory()(...);
@@ -104,27 +104,27 @@ PHP
             self::assertSame(1, $attempts);
             self::assertSame(1, $ingest->buffer->count());
 
-            \usleep(100_000);
+            usleep(100_000);
             $this->waitFor(fn(): bool => $this->pingAgent($ingest), 4_000);
             $ingest->digest();
 
             self::assertSame(0, $ingest->buffer->count());
             self::assertGreaterThanOrEqual(2, $attempts);
 
-            $dailyFile = $storePath . DIRECTORY_SEPARATOR . 'ingest-' . \date('Y-m-d') . '.ndjson';
+            $dailyFile = $storePath . DIRECTORY_SEPARATOR . 'ingest-' . date('Y-m-d') . '.ndjson';
 
-            $this->waitFor(static fn(): bool => \file_exists($dailyFile) && \filesize($dailyFile) > 0, 4_000);
+            $this->waitFor(static fn(): bool => file_exists($dailyFile) && filesize($dailyFile) > 0, 4_000);
 
-            $stream = \fopen($dailyFile, 'rb');
+            $stream = fopen($dailyFile, 'rb');
             self::assertNotFalse($stream);
 
-            $line = \fgets($stream);
-            \fclose($stream);
+            $line = fgets($stream);
+            fclose($stream);
 
             self::assertIsString($line);
 
             $decoded = json_decode($line, true, 512, JSON_THROW_ON_ERROR);
-            self::assertTrue(\is_array($decoded));
+            self::assertTrue(is_array($decoded));
             self::assertSame('trace-resilience-1', $decoded['trace_id'] ?? null);
         } finally {
             $this->stopProcess($process, $pipes);
@@ -174,7 +174,7 @@ PHP
                 return;
             }
 
-            \usleep($sleepChunk * 1000);
+            usleep($sleepChunk * 1000);
             $elapsedMs += $sleepChunk;
         }
 
@@ -187,20 +187,20 @@ PHP
      */
     private function stopProcess($process, array $pipes): void
     {
-        @\proc_terminate($process, 15);
-        \usleep(200_000);
+        @proc_terminate($process, 15);
+        usleep(200_000);
 
-        $status = \proc_get_status($process);
+        $status = proc_get_status($process);
         if ($status['running'] ?? false) {
-            @\proc_terminate($process, 9);
+            @proc_terminate($process, 9);
         }
 
         foreach ($pipes as $pipe) {
-            if (\is_resource($pipe)) {
-                \fclose($pipe);
+            if (is_resource($pipe)) {
+                fclose($pipe);
             }
         }
 
-        \proc_close($process);
+        proc_close($process);
     }
 }

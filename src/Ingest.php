@@ -122,7 +122,7 @@ final class Ingest implements IngestContract
                 throw $exception;
             }
 
-            $this->nextRetryAt = \microtime(true) + \max(0.0, $this->retryCooldownSeconds);
+            $this->nextRetryAt = microtime(true) + max(0.0, $this->retryCooldownSeconds);
 
             return false;
         } finally {
@@ -134,7 +134,7 @@ final class Ingest implements IngestContract
 
     private function shouldAttemptNonStrictTransmit(): bool
     {
-        return $this->nextRetryAt === null || \microtime(true) >= $this->nextRetryAt;
+        return $this->nextRetryAt === null || microtime(true) >= $this->nextRetryAt;
     }
 
     /**
@@ -142,7 +142,7 @@ final class Ingest implements IngestContract
      */
     private function createStream()
     {
-        return \call_user_func($this->streamFactory, $this->transmitTo, $this->connectionTimeout);
+        return call_user_func($this->streamFactory, $this->transmitTo, $this->connectionTimeout);
     }
 
     /**
