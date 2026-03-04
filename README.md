@@ -23,7 +23,7 @@ It is a **good self-hosted starter**: clean enough to keep, small enough to resh
 ## Install
 
 ```bash
-composer require dozor/dozor-agent
+composer require pepperfm/dozor-agent
 php artisan vendor:publish --tag=dozor-config
 ```
 
@@ -44,10 +44,14 @@ php artisan vendor:publish --tag=dozor-config
 ```
 
 ```bash
-composer require dozor/dozor-agent:*
+composer require pepperfm/dozor-agent:*
 php artisan list | grep dozor:
 php artisan vendor:publish --tag=dozor-config
 ```
+
+Install is safe even if the local worker is not running yet. The package does not break
+`composer install`, deploy hooks, or `package:discover` when `127.0.0.1:4815` is unavailable.
+You can install first and start the worker later.
 
 ## Typical env
 
@@ -80,6 +84,9 @@ php artisan dozor:status
 php artisan dozor:status --json
 php artisan dozor:status --strict
 ```
+
+`dozor:status --strict` is opt-in diagnostics and may fail when the local worker is down.
+Regular runtime instrumentation stays non-fatal and keeps buffered retry behavior.
 
 ## Runtime telemetry and status
 

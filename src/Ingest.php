@@ -7,8 +7,8 @@ namespace Dozor;
 use Deprecated;
 use Dozor\Contracts\IngestContract as IngestContract;
 use RuntimeException;
+use Throwable;
 
-use function call_user_func;
 use function Dozor\fclose_safely;
 use function Dozor\fread_all;
 use function Dozor\fwrite_all;
@@ -19,9 +19,13 @@ use function Dozor\stream_configure_read_timeout;
  */
 final class Ingest implements IngestContract
 {
+    private const DEFAULT_RETRY_COOLDOWN_SECONDS = 2.0;
+
     private string $transmitTo;
 
     private bool $shouldDigestWhenBufferIsFull = true;
+
+    private ?float $nextRetryAt = null;
 
     /**
      * @param (\Closure(string $address, float $timeout): resource) $streamFactory
@@ -33,6 +37,7 @@ final class Ingest implements IngestContract
         public \Closure $streamFactory,
         public RecordsBuffer $buffer,
         private readonly string $tokenHash,
+        private readonly float $retryCooldownSeconds = self::DEFAULT_RETRY_COOLDOWN_SECONDS,
     ) {
         $this->transmitTo = "tcp://$transmitTo";
     }
@@ -48,7 +53,15 @@ final class Ingest implements IngestContract
 
     public function writeNow(array $record): void
     {
-        $this->transmit(Payload::json([$record], $this->tokenHash));
+        if ($this->transmit(Payload::json([$record], $this->tokenHash))) {
+            return;
+        }
+
+        $this->buffer->write($record);
+
+        if ($this->shouldDigestWhenBufferIsFull && $this->buffer->full) {
+            $this->digest();
+        }
     }
 
     public function flush(): void
@@ -58,7 +71,7 @@ final class Ingest implements IngestContract
 
     public function ping(): void
     {
-        $this->transmit(Payload::text('PING', $this->tokenHash));
+        $this->transmit(Payload::text('PING', $this->tokenHash), strict: true);
     }
 
     #[Deprecated('Use shouldDigestWhenBufferIsFull instead')]
@@ -74,26 +87,54 @@ final class Ingest implements IngestContract
 
     public function digest(): void
     {
-        $this->transmit($this->buffer->pull($this->tokenHash));
-    }
-
-    private function transmit(Payload $payload): void
-    {
-        if ($payload->isEmpty()) {
+        $records = $this->buffer->all();
+        if ($records === []) {
             return;
         }
 
-        $stream = $this->createStream();
+        if ($this->transmit(Payload::json($records, $this->tokenHash))) {
+            $this->buffer->flush();
+        }
+    }
+
+    private function transmit(Payload $payload, bool $strict = false): bool
+    {
+        if ($payload->isEmpty()) {
+            return true;
+        }
+
+        if (!$strict && !$this->shouldAttemptNonStrictTransmit()) {
+            return false;
+        }
+
+        $stream = null;
 
         try {
+            $stream = $this->createStream();
             $this->configureStreamTimeout($stream);
-
             $this->sendPayload($stream, $payload);
-
             $this->waitForAcknowledgment($stream);
+            $this->nextRetryAt = null;
+
+            return true;
+        } catch (Throwable $exception) {
+            if ($strict) {
+                throw $exception;
+            }
+
+            $this->nextRetryAt = \microtime(true) + \max(0.0, $this->retryCooldownSeconds);
+
+            return false;
         } finally {
-            fclose_safely($stream);
+            if ($stream !== null) {
+                fclose_safely($stream);
+            }
         }
+    }
+
+    private function shouldAttemptNonStrictTransmit(): bool
+    {
+        return $this->nextRetryAt === null || \microtime(true) >= $this->nextRetryAt;
     }
 
     /**
@@ -101,7 +142,7 @@ final class Ingest implements IngestContract
      */
     private function createStream()
     {
-        return call_user_func($this->streamFactory, $this->transmitTo, $this->connectionTimeout);
+        return \call_user_func($this->streamFactory, $this->transmitTo, $this->connectionTimeout);
     }
 
     /**

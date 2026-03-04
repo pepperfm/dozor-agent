@@ -6,16 +6,13 @@ namespace Dozor;
 
 use Countable;
 
-use function array_shift;
-use function count;
-
 /**
  * @internal
  */
 final class RecordsBuffer implements Countable
 {
     /**
-     * @var list<array<mixed>>
+     * @var list<array<string, mixed>>
      */
     private array $records = [];
 
@@ -31,7 +28,7 @@ final class RecordsBuffer implements Countable
     public function write(array $record): void
     {
         if ($this->full) {
-            array_shift($this->records);
+            \array_shift($this->records);
         }
 
         $this->records[] = $record;
@@ -41,7 +38,15 @@ final class RecordsBuffer implements Countable
 
     public function count(): int
     {
-        return count($this->records);
+        return \count($this->records);
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    public function all(): array
+    {
+        return $this->records;
     }
 
     public function pull(string $tokenHash): Payload
