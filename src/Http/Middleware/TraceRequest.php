@@ -26,41 +26,41 @@ final readonly class TraceRequest
         }
 
         $startedAt = microtime(true);
-        $this->core->beginRequest($request, $startedAt);
+        $this->capture(fn() => $this->core->beginRequest($request, $startedAt));
         $request->attributes->set(self::STARTED_AT_ATTRIBUTE, $startedAt);
         $request->attributes->set(self::PENDING_FINISH_ATTRIBUTE, false);
-        $this->core->beginLifecycleStage(RequestLifecycleStage::Bootstrap->value);
-        $this->core->endLifecycleStage(RequestLifecycleStage::Bootstrap->value);
-        $this->core->beginLifecycleStage(RequestLifecycleStage::Middleware->value, [
+        $this->capture(fn() => $this->core->beginLifecycleStage(RequestLifecycleStage::Bootstrap->value));
+        $this->capture(fn() => $this->core->endLifecycleStage(RequestLifecycleStage::Bootstrap->value));
+        $this->capture(fn() => $this->core->beginLifecycleStage(RequestLifecycleStage::Middleware->value, [
             'middleware_count' => count($request->route()?->gatherMiddleware() ?? []),
-        ]);
-        $this->core->beginLifecycleStage(RequestLifecycleStage::Controller->value);
+        ]));
+        $this->capture(fn() => $this->core->beginLifecycleStage(RequestLifecycleStage::Controller->value));
 
         try {
             $response = $next($request);
-            $this->core->endLifecycleStage(RequestLifecycleStage::Controller->value);
-            $this->core->beginLifecycleStage(RequestLifecycleStage::Render->value);
-            $this->core->endLifecycleStage(RequestLifecycleStage::Render->value);
-            $this->core->endLifecycleStage(RequestLifecycleStage::Middleware->value);
-            $this->core->beginLifecycleStage(RequestLifecycleStage::Sending->value);
+            $this->capture(fn() => $this->core->endLifecycleStage(RequestLifecycleStage::Controller->value));
+            $this->capture(fn() => $this->core->beginLifecycleStage(RequestLifecycleStage::Render->value));
+            $this->capture(fn() => $this->core->endLifecycleStage(RequestLifecycleStage::Render->value));
+            $this->capture(fn() => $this->core->endLifecycleStage(RequestLifecycleStage::Middleware->value));
+            $this->capture(fn() => $this->core->beginLifecycleStage(RequestLifecycleStage::Sending->value));
             $request->attributes->set(self::PENDING_FINISH_ATTRIBUTE, true);
 
             return $response;
         } catch (Throwable $e) {
-            $this->core->endLifecycleStage(RequestLifecycleStage::Controller->value, [
+            $this->capture(fn() => $this->core->endLifecycleStage(RequestLifecycleStage::Controller->value, [
                 'exception_class' => $e::class,
-            ]);
-            $this->core->endLifecycleStage(RequestLifecycleStage::Middleware->value, [
+            ]));
+            $this->capture(fn() => $this->core->endLifecycleStage(RequestLifecycleStage::Middleware->value, [
                 'exception_class' => $e::class,
-            ]);
-            $this->core->beginLifecycleStage(RequestLifecycleStage::Sending->value);
-            $this->core->recordException($e, [
+            ]));
+            $this->capture(fn() => $this->core->beginLifecycleStage(RequestLifecycleStage::Sending->value));
+            $this->capture(fn() => $this->core->recordException($e, [
                 'phase' => 'http',
                 'url' => $request->fullUrl(),
                 'method' => $request->method(),
-            ]);
-            $this->core->finishRequest($request, null, $startedAt, $e);
-            $this->core->digest();
+            ]));
+            $this->capture(fn() => $this->core->finishRequest($request, null, $startedAt, $e));
+            $this->capture(fn() => $this->core->digest());
 
             throw $e;
         }
@@ -81,7 +81,15 @@ final readonly class TraceRequest
             $startedAt = microtime(true);
         }
 
-        $this->core->finishRequest($request, $response, $startedAt);
-        $this->core->digest();
+        $this->capture(fn() => $this->core->finishRequest($request, $response, $startedAt));
+        $this->capture(fn() => $this->core->digest());
+    }
+
+    private function capture(callable $callback): void
+    {
+        try {
+            $callback();
+        } catch (Throwable) {
+        }
     }
 }

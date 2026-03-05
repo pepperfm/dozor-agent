@@ -70,7 +70,10 @@ class DozorServiceProvider extends ServiceProvider
                     'message' => $e->getMessage(),
                 ]);
 
-                throw $e;
+                return new Dozor(
+                    ingest: new NullIngest(),
+                    config: ['enabled' => false],
+                );
             }
         });
 
@@ -158,7 +161,7 @@ class DozorServiceProvider extends ServiceProvider
                 'message' => $e->getMessage(),
             ]);
 
-            throw $e;
+            return;
         }
 
         if (!$core->enabled()) {

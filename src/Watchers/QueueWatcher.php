@@ -8,6 +8,7 @@ use Dozor\Contracts\DozorContract;
 use Illuminate\Queue\Events\JobFailed;
 use Illuminate\Queue\Events\JobProcessed;
 use Illuminate\Queue\Events\JobProcessing;
+use Throwable;
 
 final readonly class QueueWatcher
 {
@@ -17,11 +18,17 @@ final readonly class QueueWatcher
 
     public function started(JobProcessing $event): void
     {
-        $this->core->recordJobStarted($event);
+        try {
+            $this->core->recordJobStarted($event);
+        } catch (Throwable) {
+        }
     }
 
     public function finished(JobProcessed|JobFailed $event): void
     {
-        $this->core->recordJobFinished($event);
+        try {
+            $this->core->recordJobFinished($event);
+        } catch (Throwable) {
+        }
     }
 }

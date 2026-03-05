@@ -6,6 +6,7 @@ namespace Dozor\Watchers;
 
 use Dozor\Contracts\DozorContract;
 use Illuminate\Database\Events\QueryExecuted;
+use Throwable;
 
 final readonly class QueryWatcher
 {
@@ -15,6 +16,9 @@ final readonly class QueryWatcher
 
     public function __invoke(QueryExecuted $event): void
     {
-        $this->core->recordQuery($event);
+        try {
+            $this->core->recordQuery($event);
+        } catch (Throwable) {
+        }
     }
 }

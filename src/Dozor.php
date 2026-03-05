@@ -32,6 +32,8 @@ use function str_starts_with;
 
 class Dozor implements DozorContract
 {
+    private const DEFAULT_RUNTIME_ERROR_COOLDOWN_SECONDS = 60.0;
+
     public ?TraceContext $currentTrace = null;
 
     /**
@@ -50,6 +52,11 @@ class Dozor implements DozorContract
     private PayloadRedactor $redactor;
 
     private RequestFilter $requestFilter;
+
+    /**
+     * @var array<string, float>
+     */
+    private array $runtimeErrorReportedAt = [];
 
     /**
      * @param array<string, mixed> $config
@@ -82,48 +89,59 @@ class Dozor implements DozorContract
 
     public function beginRequest(Request $request, ?float $startedAt = null): TraceContext
     {
-        $traceId = $this->makeTraceId();
-        $route = $request->route();
-        $this->currentRequestSuppressed = false;
-        $this->currentRequestSuppressedReason = '';
-
-        if ($this->requestFilter->shouldIgnoreRequest($request)) {
-            $this->currentRequestSuppressed = true;
-            $this->currentRequestSuppressedReason = 'filter';
-        } else {
-            $samplingKey = $request->method() . '|' . $request->path() . '|' . ($request->ip() ?? 'unknown') . '|' . $traceId;
-            if (!$this->sampler->shouldSample('requests', $samplingKey)) {
-                $this->currentRequestSuppressed = true;
-                $this->currentRequestSuppressedReason = 'sampling';
-            }
-        }
-
-
-        $requestMeta = [
-            'method' => $request->method(),
-            'url' => $request->fullUrl(),
-            'path' => '/' . ltrim($request->path(), '/'),
-            'route_name' => $route?->getName(),
-            'route_uri' => $route?->uri(),
-            'controller' => $route?->getActionName(),
-            'middleware' => $route?->gatherMiddleware() ?? [],
-            'ip' => $request->ip(),
-            'user_id' => $request->user()?->getAuthIdentifier(),
-            'user_agent' => $request->userAgent(),
-            'sampled' => !$this->currentRequestSuppressed,
-        ];
-
-        if ((bool) $this->config('instrumentation.capture_request_headers', false)) {
-            $requestMeta['headers'] = $this->redactor->redactHeaders($request->headers->all());
-        }
-
         $startedAt ??= microtime(true);
 
-        return $this->currentTrace = new TraceContext(
-            traceId: $traceId,
-            startedAt: $startedAt,
-            requestMeta: $requestMeta,
-        );
+        try {
+            $traceId = $this->makeTraceId();
+            $route = $request->route();
+            $this->currentRequestSuppressed = false;
+            $this->currentRequestSuppressedReason = '';
+
+            if ($this->requestFilter->shouldIgnoreRequest($request)) {
+                $this->currentRequestSuppressed = true;
+                $this->currentRequestSuppressedReason = 'filter';
+            } else {
+                $samplingKey = $request->method() . '|' . $request->path() . '|' . ($request->ip() ?? 'unknown') . '|' . $traceId;
+                if (!$this->sampler->shouldSample('requests', $samplingKey)) {
+                    $this->currentRequestSuppressed = true;
+                    $this->currentRequestSuppressedReason = 'sampling';
+                }
+            }
+
+            $requestMeta = [
+                'method' => $request->method(),
+                'url' => $request->fullUrl(),
+                'path' => '/' . ltrim($request->path(), '/'),
+                'route_name' => $route?->getName(),
+                'route_uri' => $route?->uri(),
+                'controller' => $route?->getActionName(),
+                'middleware' => $route?->gatherMiddleware() ?? [],
+                'ip' => $request->ip(),
+                'user_id' => $request->user()?->getAuthIdentifier(),
+                'user_agent' => $request->userAgent(),
+                'sampled' => !$this->currentRequestSuppressed,
+            ];
+
+            if ((bool) $this->config('instrumentation.capture_request_headers', false)) {
+                $requestMeta['headers'] = $this->redactor->redactHeaders($request->headers->all());
+            }
+
+            return $this->currentTrace = new TraceContext(
+                traceId: $traceId,
+                startedAt: $startedAt,
+                requestMeta: $requestMeta,
+            );
+        } catch (Throwable $e) {
+            $this->reportRuntimeException('begin_request', $e);
+            $this->currentRequestSuppressed = true;
+            $this->currentRequestSuppressedReason = 'dozor_runtime_error';
+
+            return $this->currentTrace = new TraceContext(
+                traceId: $this->makeTraceId(),
+                startedAt: $startedAt,
+                requestMeta: ['sampled' => false],
+            );
+        }
     }
 
     /**
@@ -174,57 +192,57 @@ class Dozor implements DozorContract
         float $startedAt,
         ?Throwable $e = null
     ): void {
-        if (!$this->enabled()) {
-            return;
-        }
+        try {
+            if (!$this->enabled()) {
+                return;
+            }
 
-        if ($this->currentRequestSuppressed) {
+            if ($this->currentRequestSuppressed) {
+                return;
+            }
+
+            $this->endLifecycleStage(RequestLifecycleStage::Sending->value);
+            $this->beginLifecycleStage(RequestLifecycleStage::Terminating->value);
+            $this->endLifecycleStage(RequestLifecycleStage::Terminating->value);
+            $this->currentTrace?->closeOpenLifecycleStages();
+
+            $traceId = $this->currentTrace?->traceId ?? $this->makeTraceId();
+            $durationMs = round((microtime(true) - $startedAt) * 1000, 2);
+            $status = method_exists($response, 'getStatusCode') ? $response->getStatusCode() : ($e ? 500 : 200);
+
+            $payload = array_merge($this->currentTrace?->requestMeta ?? [], [
+                'status' => $status,
+                'duration_ms' => $durationMs,
+                'request_id' => $request->headers->get('X-Request-Id'),
+                'memory_peak_bytes' => memory_get_peak_usage(true),
+                'lifecycle_stages' => $this->currentTrace?->lifecycleStages() ?? [],
+            ]);
+
+            if ((bool) $this->config('capture_request_payload', false) && !$this->config('filtering.ignore_request_payload', false)) {
+                $payload['request_payload'] = $this->sanitizePayload($request->all());
+            }
+
+            if ($e) {
+                $payload['exception_class'] = $e::class;
+                $payload['exception_message'] = $e->getMessage();
+            }
+
+            $this->report([
+                'type' => 'request',
+                'trace_id' => $traceId,
+                'happened_at' => $this->isoTime(),
+                'app' => $this->config('app_name'),
+                'environment' => $this->config('environment'),
+                'server' => $this->config('server'),
+                'payload' => $payload,
+            ]);
+        } catch (Throwable $exception) {
+            $this->reportRuntimeException('finish_request', $exception);
+        } finally {
             $this->currentTrace = null;
             $this->currentRequestSuppressed = false;
             $this->currentRequestSuppressedReason = '';
-
-            return;
         }
-
-        $this->endLifecycleStage(RequestLifecycleStage::Sending->value);
-        $this->beginLifecycleStage(RequestLifecycleStage::Terminating->value);
-        $this->endLifecycleStage(RequestLifecycleStage::Terminating->value);
-        $this->currentTrace?->closeOpenLifecycleStages();
-
-        $traceId = $this->currentTrace?->traceId ?? $this->makeTraceId();
-        $durationMs = round((microtime(true) - $startedAt) * 1000, 2);
-        $status = method_exists($response, 'getStatusCode') ? $response->getStatusCode() : ($e ? 500 : 200);
-
-        $payload = array_merge($this->currentTrace?->requestMeta ?? [], [
-            'status' => $status,
-            'duration_ms' => $durationMs,
-            'request_id' => $request->headers->get('X-Request-Id'),
-            'memory_peak_bytes' => memory_get_peak_usage(true),
-            'lifecycle_stages' => $this->currentTrace?->lifecycleStages() ?? [],
-        ]);
-
-        if ((bool) $this->config('capture_request_payload', false) && !$this->config('filtering.ignore_request_payload', false)) {
-            $payload['request_payload'] = $this->sanitizePayload($request->all());
-        }
-
-        if ($e) {
-            $payload['exception_class'] = $e::class;
-            $payload['exception_message'] = $e->getMessage();
-        }
-
-        $this->report([
-            'type' => 'request',
-            'trace_id' => $traceId,
-            'happened_at' => $this->isoTime(),
-            'app' => $this->config('app_name'),
-            'environment' => $this->config('environment'),
-            'server' => $this->config('server'),
-            'payload' => $payload,
-        ]);
-
-        $this->currentTrace = null;
-        $this->currentRequestSuppressed = false;
-        $this->currentRequestSuppressedReason = '';
     }
 
     public function recordQuery(QueryExecuted $event): void
@@ -492,37 +510,45 @@ class Dozor implements DozorContract
      */
     public function report(array $record, bool $immediate = false): void
     {
-        if (!$this->enabled()) {
-            return;
-        }
-
-        $record['deployment'] ??= $this->config('deployment');
-        $record['release'] ??= $this->config('release', $this->config('deployment'));
-
-        $payload = Arr::get($record, 'payload');
-        if (is_array($payload)) {
-            $payload = $this->redactor->redactPayload($payload);
-            $limitedPayload = $this->redactor->enforcePayloadLimit($payload, (string) Arr::get($record, 'type', 'unknown'));
-
-            if ($limitedPayload === null) {
+        try {
+            if (!$this->enabled()) {
                 return;
             }
 
-            $record['payload'] = $limitedPayload;
+            $record['deployment'] ??= $this->config('deployment');
+            $record['release'] ??= $this->config('release', $this->config('deployment'));
+
+            $payload = Arr::get($record, 'payload');
+            if (is_array($payload)) {
+                $payload = $this->redactor->redactPayload($payload);
+                $limitedPayload = $this->redactor->enforcePayloadLimit($payload, (string) Arr::get($record, 'type', 'unknown'));
+
+                if ($limitedPayload === null) {
+                    return;
+                }
+
+                $record['payload'] = $limitedPayload;
+            }
+
+            if ($immediate) {
+                $this->ingest->writeNow($record);
+
+                return;
+            }
+
+            $this->ingest->write($record);
+        } catch (Throwable $exception) {
+            $this->reportRuntimeException('report', $exception);
         }
-
-        if ($immediate) {
-            $this->ingest->writeNow($record);
-
-            return;
-        }
-
-        $this->ingest->write($record);
     }
 
     public function digest(): void
     {
-        $this->ingest->digest();
+        try {
+            $this->ingest->digest();
+        } catch (Throwable $exception) {
+            $this->reportRuntimeException('digest', $exception);
+        }
     }
 
     public function ping(): void
@@ -611,5 +637,33 @@ class Dozor implements DozorContract
             spl_object_id($event->job);
 
         return $event->connectionName . '|' . $event->job->resolveName() . '|' . $jobId;
+    }
+
+    private function reportRuntimeException(string $operation, Throwable $exception): void
+    {
+        $message = $exception->getMessage();
+        $message = $message === '' ? '[empty-message]' : $message;
+        $signature = hash('xxh128', $operation . '|' . $exception::class . '|' . $message);
+        $now = microtime(true);
+        $cooldown = max(
+            1.0,
+            (float) $this->config('instrumentation.runtime_error_cooldown_seconds', self::DEFAULT_RUNTIME_ERROR_COOLDOWN_SECONDS),
+        );
+
+        $lastReportedAt = $this->runtimeErrorReportedAt[$signature] ?? null;
+        if (is_numeric($lastReportedAt) && ($now - (float) $lastReportedAt) < $cooldown) {
+            return;
+        }
+
+        $this->runtimeErrorReportedAt[$signature] = $now;
+
+        try {
+            logger()->warning('dozor.runtime.unrecoverable_exception_occurred', [
+                'operation' => $operation,
+                'exception_class' => $exception::class,
+                'message' => $exception->getMessage(),
+            ]);
+        } catch (Throwable) {
+        }
     }
 }

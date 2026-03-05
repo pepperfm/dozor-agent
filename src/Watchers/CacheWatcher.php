@@ -8,6 +8,7 @@ use Dozor\Contracts\DozorContract;
 use Illuminate\Cache\Events\CacheHit;
 use Illuminate\Cache\Events\CacheMissed;
 use Illuminate\Cache\Events\KeyWritten;
+use Throwable;
 
 final readonly class CacheWatcher
 {
@@ -17,28 +18,37 @@ final readonly class CacheWatcher
 
     public function hit(CacheHit $event): void
     {
-        $this->core->recordCacheEvent([
-            'operation' => 'hit',
-            'key' => (string) $event->key,
-            'store' => $event->storeName,
-        ]);
+        try {
+            $this->core->recordCacheEvent([
+                'operation' => 'hit',
+                'key' => (string) $event->key,
+                'store' => $event->storeName,
+            ]);
+        } catch (Throwable) {
+        }
     }
 
     public function missed(CacheMissed $event): void
     {
-        $this->core->recordCacheEvent([
-            'operation' => 'miss',
-            'key' => (string) $event->key,
-            'store' => $event->storeName,
-        ]);
+        try {
+            $this->core->recordCacheEvent([
+                'operation' => 'miss',
+                'key' => (string) $event->key,
+                'store' => $event->storeName,
+            ]);
+        } catch (Throwable) {
+        }
     }
 
     public function written(KeyWritten $event): void
     {
-        $this->core->recordCacheEvent([
-            'operation' => 'write',
-            'key' => (string) $event->key,
-            'store' => $event->storeName,
-        ]);
+        try {
+            $this->core->recordCacheEvent([
+                'operation' => 'write',
+                'key' => (string) $event->key,
+                'store' => $event->storeName,
+            ]);
+        } catch (Throwable) {
+        }
     }
 }
