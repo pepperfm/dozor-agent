@@ -166,14 +166,18 @@ final class TraceBatchTransformerTest extends TestCase
         $trace = $payload['traces'][0];
         $spans = is_array($trace['spans'] ?? null) ? $trace['spans'] : [];
 
-        $controllerPhase = $this->findSpan($spans, 'lifecycle', 'CONTROLLER');
-        $middlewarePhase = $this->findSpan($spans, 'lifecycle', 'MIDDLEWARE');
+        $controllerPhase = $this->findSpan($spans, 'lifecycle', 'Controller');
+        $middlewarePhase = $this->findSpan($spans, 'lifecycle', 'Middleware');
+        $authMiddleware = $this->findSpan($spans, 'middleware', 'Auth');
+        $throttleMiddleware = $this->findSpan($spans, 'middleware', 'Throttle:api');
         $querySpan = $this->findSpan($spans, 'query');
         $cacheSpan = $this->findSpan($spans, 'cache');
         $outgoingSpan = $this->findSpan($spans, 'outgoing_http');
 
         self::assertIsArray($controllerPhase);
         self::assertIsArray($middlewarePhase);
+        self::assertIsArray($authMiddleware);
+        self::assertIsArray($throttleMiddleware);
         self::assertIsArray($querySpan);
         self::assertIsArray($cacheSpan);
         self::assertIsArray($outgoingSpan);
@@ -183,6 +187,8 @@ final class TraceBatchTransformerTest extends TestCase
         self::assertSame('controller', $querySpan['metadata']['lifecycle_phase'] ?? null);
         self::assertSame('controller', $cacheSpan['metadata']['lifecycle_phase'] ?? null);
         self::assertSame('controller', $outgoingSpan['metadata']['lifecycle_phase'] ?? null);
+        self::assertSame('Auth', $authMiddleware['name'] ?? null);
+        self::assertSame('Throttle:api', $throttleMiddleware['name'] ?? null);
 
         $middlewareChildrenCount = 0;
         foreach ($spans as $span) {
@@ -254,6 +260,68 @@ final class TraceBatchTransformerTest extends TestCase
 
         self::assertIsArray($querySpan);
         self::assertSame(64, $querySpan['start_offset_ms'] ?? null);
+    }
+
+    public function test_it_prefers_normalized_signature_over_raw_sql_for_query_spans(): void
+    {
+        $startedAt = now();
+
+        $records = [
+            [
+                'type' => 'request',
+                'trace_id' => 'trace-source-4',
+                'happened_at' => $startedAt->toIso8601String(),
+                'payload' => [
+                    'method' => 'GET',
+                    'path' => '/queries',
+                    'url' => 'https://app.example.test/queries',
+                    'status' => 200,
+                    'duration_ms' => 90,
+                ],
+            ],
+            [
+                'type' => 'query',
+                'trace_id' => 'trace-source-4',
+                'happened_at' => $startedAt->copy()->addMilliseconds(20)->toIso8601String(),
+                'payload' => [
+                    'sql' => 'select * from users where id = ?',
+                    'normalized_signature' => 'users.select.by-id',
+                    'time_ms' => 6,
+                    'connection' => 'pgsql',
+                ],
+            ],
+            [
+                'type' => 'query',
+                'trace_id' => 'trace-source-4',
+                'happened_at' => $startedAt->copy()->addMilliseconds(40)->toIso8601String(),
+                'payload' => [
+                    'sql' => 'select * from accounts where email = ?',
+                    'time_ms' => 8,
+                    'connection' => 'pgsql',
+                ],
+            ],
+        ];
+
+        $transformer = new TraceBatchTransformer(
+            appName: 'Storefront',
+            appToken: 'token',
+            environment: 'production',
+            serverName: 'node-1',
+            maxSpansPerTrace: 50,
+        );
+
+        $payload = $transformer->transform($records);
+        $trace = $payload['traces'][0];
+        $spans = array_values(array_filter(
+            is_array($trace['spans'] ?? null) ? $trace['spans'] : [],
+            static fn (mixed $span): bool => is_array($span) && ($span['kind'] ?? null) === 'query',
+        ));
+
+        self::assertCount(2, $spans);
+        self::assertSame('users.select.by-id', $spans[0]['normalized_signature'] ?? null);
+        self::assertSame('select * from users where id = ?', $spans[0]['sql_text'] ?? null);
+        self::assertSame('select * from accounts where email = ?', $spans[1]['normalized_signature'] ?? null);
+        self::assertSame('select * from accounts where email = ?', $spans[1]['sql_text'] ?? null);
     }
 
     /**

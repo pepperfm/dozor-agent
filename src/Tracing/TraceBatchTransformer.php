@@ -383,7 +383,7 @@ final class TraceBatchTransformer
                 'start_offset_ms' => $offsetMs,
                 'duration_ms' => max(1, (int) round($this->resolveNumeric($payload, ['time_ms'], 1))),
                 'connection' => is_string(Arr::get($payload, 'connection')) ? Arr::get($payload, 'connection') : null,
-                'normalized_signature' => is_string(Arr::get($payload, 'sql')) ? mb_substr((string) Arr::get($payload, 'sql'), 0, 255) : null,
+                'normalized_signature' => $this->resolveQueryNormalizedSignature($payload),
                 'sql_text' => is_string(Arr::get($payload, 'sql')) ? Arr::get($payload, 'sql') : null,
                 'rows_count' => is_numeric(Arr::get($payload, 'rows_count')) ? (int) Arr::get($payload, 'rows_count') : null,
                 'service' => null,
@@ -417,7 +417,7 @@ final class TraceBatchTransformer
                 'id' => str()->ulid()->toString(),
                 'parent_span_id' => $parentSpanId,
                 'kind' => 'cache',
-                'name' => 'CACHE ' . mb_strtoupper((string) Arr::get($payload, 'operation', 'unknown')),
+                'name' => 'Cache ' . $this->formatDisplayLabel((string) Arr::get($payload, 'operation', 'unknown')),
                 'start_offset_ms' => $offsetMs,
                 'duration_ms' => max(1, (int) round($this->resolveNumeric($payload, ['duration_ms'], 1))),
                 'connection' => null,
@@ -546,7 +546,7 @@ final class TraceBatchTransformer
                 'id' => $phaseSpanId,
                 'parent_span_id' => $rootSpanId,
                 'kind' => 'lifecycle',
-                'name' => mb_strtoupper($stageName),
+                'name' => $this->formatDisplayLabel($stageName),
                 'start_offset_ms' => $startOffsetMs,
                 'duration_ms' => $stageDurationMs,
                 'connection' => null,
@@ -595,7 +595,7 @@ final class TraceBatchTransformer
                     'id' => str()->ulid()->toString(),
                     'parent_span_id' => $middlewarePhaseId,
                     'kind' => 'middleware',
-                    'name' => mb_strtoupper($item),
+                    'name' => $this->formatDisplayLabel($item),
                     'start_offset_ms' => $middlewareStart,
                     'duration_ms' => $middlewareDuration,
                     'connection' => null,
@@ -1203,6 +1203,46 @@ final class TraceBatchTransformer
         }
 
         return mb_substr($sql, 0, 80);
+    }
+
+    private function formatDisplayLabel(string $value): string
+    {
+        if ($value === '') {
+            return $value;
+        }
+
+        $normalizedValue = str_replace('/', '\\', $value);
+        $segments = array_values(array_filter(explode('\\', $normalizedValue)));
+        $label = $segments === [] ? $value : (string) end($segments);
+
+        if ($label === '') {
+            return $value;
+        }
+
+        $collapsedLabel = str_replace(['_', '-'], ' ', $label);
+        if (mb_strtolower($collapsedLabel) === $collapsedLabel || mb_strtoupper($collapsedLabel) === $collapsedLabel) {
+            return mb_convert_case($collapsedLabel, MB_CASE_TITLE, 'UTF-8');
+        }
+
+        return $label;
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     */
+    private function resolveQueryNormalizedSignature(array $payload): ?string
+    {
+        $normalizedSignature = Arr::get($payload, 'normalized_signature');
+        if (is_string($normalizedSignature) && $normalizedSignature !== '') {
+            return mb_substr($normalizedSignature, 0, 255);
+        }
+
+        $sql = Arr::get($payload, 'sql');
+        if (is_string($sql) && $sql !== '') {
+            return mb_substr($sql, 0, 255);
+        }
+
+        return null;
     }
 
     /**
