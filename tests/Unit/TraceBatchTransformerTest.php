@@ -207,6 +207,83 @@ final class TraceBatchTransformerTest extends TestCase
         self::assertSame(2, $middlewareChildrenCount);
     }
 
+    public function test_it_preserves_repeated_lifecycle_phases_and_uses_longest_phase_for_middleware_children(): void
+    {
+        $startedAt = now();
+
+        $records = [
+            [
+                'type' => 'request',
+                'trace_id' => 'trace-source-repeat',
+                'happened_at' => $startedAt->toIso8601String(),
+                'payload' => [
+                    'method' => 'GET',
+                    'path' => '/academy/streams',
+                    'url' => 'https://app.example.test/academy/streams',
+                    'status' => 200,
+                    'duration_ms' => 140,
+                    'middleware' => ['web', 'routeMiddleware'],
+                    'lifecycle_stages' => [
+                        ['name' => 'bootstrap', 'start_offset_ms' => 0, 'duration_ms' => 8],
+                        ['name' => 'middleware', 'start_offset_ms' => 8, 'duration_ms' => 18, 'metadata' => ['segment' => 'before_controller']],
+                        ['name' => 'controller', 'start_offset_ms' => 26, 'duration_ms' => 92],
+                        ['name' => 'render', 'start_offset_ms' => 118, 'duration_ms' => 10],
+                        ['name' => 'middleware', 'start_offset_ms' => 128, 'duration_ms' => 2, 'metadata' => ['segment' => 'after_controller']],
+                        ['name' => 'sending', 'start_offset_ms' => 130, 'duration_ms' => 6],
+                        ['name' => 'terminating', 'start_offset_ms' => 136, 'duration_ms' => 4],
+                    ],
+                ],
+            ],
+        ];
+
+        $transformer = new TraceBatchTransformer(
+            appName: 'Storefront',
+            appToken: 'token',
+            environment: 'production',
+            serverName: 'node-1',
+            maxSpansPerTrace: 100,
+        );
+
+        $payload = $transformer->transform($records);
+        $trace = $payload['traces'][0];
+        $spans = is_array($trace['spans'] ?? null) ? $trace['spans'] : [];
+
+        $middlewarePhases = array_values(array_filter(
+            $spans,
+            static fn(mixed $span): bool => is_array($span)
+                && ($span['kind'] ?? null) === 'lifecycle'
+                && ($span['name'] ?? null) === 'Middleware',
+        ));
+
+        self::assertCount(2, $middlewarePhases);
+
+        $canonicalMiddlewarePhase = $middlewarePhases[0];
+        foreach ($middlewarePhases as $phase) {
+            if (!is_array($phase)) {
+                continue;
+            }
+
+            if ((int) ($phase['duration_ms'] ?? 0) > (int) ($canonicalMiddlewarePhase['duration_ms'] ?? 0)) {
+                $canonicalMiddlewarePhase = $phase;
+            }
+        }
+
+        $middlewareChildren = array_values(array_filter(
+            $spans,
+            static fn(mixed $span): bool => is_array($span) && ($span['kind'] ?? null) === 'middleware',
+        ));
+
+        self::assertCount(2, $middlewareChildren);
+        self::assertSame(
+            $canonicalMiddlewarePhase['id'] ?? null,
+            $middlewareChildren[0]['parent_span_id'] ?? null,
+        );
+        self::assertSame(
+            $canonicalMiddlewarePhase['id'] ?? null,
+            $middlewareChildren[1]['parent_span_id'] ?? null,
+        );
+    }
+
     public function test_it_prefers_payload_start_offset_over_happened_at_for_nested_spans(): void
     {
         $startedAt = now();

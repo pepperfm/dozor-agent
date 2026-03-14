@@ -33,6 +33,10 @@ final readonly class TraceRequest
         $this->capture(fn() => $this->core->endLifecycleStage(RequestLifecycleStage::Bootstrap->value));
         $this->capture(fn() => $this->core->beginLifecycleStage(RequestLifecycleStage::Middleware->value, [
             'middleware_count' => count($request->route()?->gatherMiddleware() ?? []),
+            'segment' => 'before_controller',
+        ]));
+        $this->capture(fn() => $this->core->endLifecycleStage(RequestLifecycleStage::Middleware->value, [
+            'segment' => 'before_controller',
         ]));
         $this->capture(fn() => $this->core->beginLifecycleStage(RequestLifecycleStage::Controller->value));
 
@@ -41,7 +45,12 @@ final readonly class TraceRequest
             $this->capture(fn() => $this->core->endLifecycleStage(RequestLifecycleStage::Controller->value));
             $this->capture(fn() => $this->core->beginLifecycleStage(RequestLifecycleStage::Render->value));
             $this->capture(fn() => $this->core->endLifecycleStage(RequestLifecycleStage::Render->value));
-            $this->capture(fn() => $this->core->endLifecycleStage(RequestLifecycleStage::Middleware->value));
+            $this->capture(fn() => $this->core->beginLifecycleStage(RequestLifecycleStage::Middleware->value, [
+                'segment' => 'after_controller',
+            ]));
+            $this->capture(fn() => $this->core->endLifecycleStage(RequestLifecycleStage::Middleware->value, [
+                'segment' => 'after_controller',
+            ]));
             $this->capture(fn() => $this->core->beginLifecycleStage(RequestLifecycleStage::Sending->value));
             $request->attributes->set(self::PENDING_FINISH_ATTRIBUTE, true);
 
@@ -50,7 +59,12 @@ final readonly class TraceRequest
             $this->capture(fn() => $this->core->endLifecycleStage(RequestLifecycleStage::Controller->value, [
                 'exception_class' => $e::class,
             ]));
+            $this->capture(fn() => $this->core->beginLifecycleStage(RequestLifecycleStage::Middleware->value, [
+                'segment' => 'after_controller',
+                'exception_class' => $e::class,
+            ]));
             $this->capture(fn() => $this->core->endLifecycleStage(RequestLifecycleStage::Middleware->value, [
+                'segment' => 'after_controller',
                 'exception_class' => $e::class,
             ]));
             $this->capture(fn() => $this->core->beginLifecycleStage(RequestLifecycleStage::Sending->value));

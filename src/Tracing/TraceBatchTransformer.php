@@ -563,11 +563,20 @@ final class TraceBatchTransformer
                 ],
             ];
 
-            $phaseSpanIds[$stageName] = $phaseSpanId;
-            $phaseRanges[$stageName] = [
-                'start' => $startOffsetMs,
-                'end' => $startOffsetMs + $stageDurationMs - 1,
-            ];
+            $existingRange = $phaseRanges[$stageName] ?? null;
+            $existingDurationMs = is_array($existingRange)
+                ? max(1, ((int) Arr::get($existingRange, 'end', 0)) - ((int) Arr::get($existingRange, 'start', 0)) + 1)
+                : 0;
+
+            // Keep a canonical phase span per phase for parent mapping. When repeated phases exist
+            // (for example middleware before/after controller), pick the longest one.
+            if (!isset($phaseSpanIds[$stageName]) || $stageDurationMs > $existingDurationMs) {
+                $phaseSpanIds[$stageName] = $phaseSpanId;
+                $phaseRanges[$stageName] = [
+                    'start' => $startOffsetMs,
+                    'end' => $startOffsetMs + $stageDurationMs - 1,
+                ];
+            }
         }
 
         $middleware = $this->resolveMiddleware($rootPayload);
@@ -661,7 +670,7 @@ final class TraceBatchTransformer
                 }
 
                 $metadata = Arr::get($stage, 'metadata', []);
-                $resolvedStages[$resolvedStage->value] = [
+                $resolvedStages[] = [
                     'name' => $resolvedStage->value,
                     'start_offset_ms' => $startOffsetMs,
                     'duration_ms' => $stageDurationMs,
@@ -674,15 +683,7 @@ final class TraceBatchTransformer
             return [];
         }
 
-        $ordered = [];
-        foreach ($this->requestPhaseOrder() as $phaseName) {
-            $stage = $resolvedStages[$phaseName] ?? null;
-            if (is_array($stage)) {
-                $ordered[] = $stage;
-            }
-        }
-
-        return $ordered;
+        return $resolvedStages;
     }
 
     /**
