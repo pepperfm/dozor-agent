@@ -9,7 +9,13 @@ use Dozor\Console\AgentCommand;
 use Dozor\Console\StatusCommand;
 use Dozor\Contracts\DozorContract as CoreContract;
 use Dozor\Contracts\IngestContract as IngestContract;
+use Dozor\Hooks\PreparingResponseListener;
+use Dozor\Hooks\RequestBootedHandler;
+use Dozor\Hooks\RequestHandledListener;
+use Dozor\Hooks\ResponsePreparedListener;
+use Dozor\Hooks\TerminatingListener;
 use Dozor\Http\Middleware\TraceRequest;
+use Dozor\Http\Middleware\TraceRequestBootstrap;
 use Dozor\Watchers\CacheWatcher;
 use Dozor\Watchers\ApplicationEventWatcher;
 use Dozor\Watchers\HttpWatcher;
@@ -22,6 +28,8 @@ use Illuminate\Cache\Events\KeyWritten;
 use Illuminate\Contracts\Config\Repository;
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Foundation\Events\Terminating;
+use Illuminate\Foundation\Http\Events\RequestHandled;
 use Illuminate\Http\Client\Events\ConnectionFailed;
 use Illuminate\Http\Client\Events\RequestSending;
 use Illuminate\Http\Client\Events\ResponseReceived;
@@ -29,6 +37,8 @@ use Illuminate\Log\Events\MessageLogged;
 use Illuminate\Queue\Events\JobFailed;
 use Illuminate\Queue\Events\JobProcessed;
 use Illuminate\Queue\Events\JobProcessing;
+use Illuminate\Routing\Events\PreparingResponse;
+use Illuminate\Routing\Events\ResponsePrepared;
 use Illuminate\Routing\Router;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Event;
@@ -97,6 +107,10 @@ class DozorServiceProvider extends ServiceProvider
             static fn(Application $app) => new TraceRequest($app->make(CoreContract::class))
         );
         $this->app->singleton(
+            TraceRequestBootstrap::class,
+            static fn(Application $app) => new TraceRequestBootstrap($app->make(CoreContract::class))
+        );
+        $this->app->singleton(
             HttpWatcher::class,
             static function (Application $app): HttpWatcher {
                 /** @var array<string, mixed> $config */
@@ -124,6 +138,26 @@ class DozorServiceProvider extends ServiceProvider
                 $ignoredEvents,
             );
         });
+        $this->app->singleton(
+            PreparingResponseListener::class,
+            static fn(Application $app) => new PreparingResponseListener($app->make(CoreContract::class))
+        );
+        $this->app->singleton(
+            RequestBootedHandler::class,
+            static fn(Application $app) => new RequestBootedHandler($app->make(CoreContract::class))
+        );
+        $this->app->singleton(
+            ResponsePreparedListener::class,
+            static fn(Application $app) => new ResponsePreparedListener($app->make(CoreContract::class))
+        );
+        $this->app->singleton(
+            RequestHandledListener::class,
+            static fn(Application $app) => new RequestHandledListener($app->make(CoreContract::class))
+        );
+        $this->app->singleton(
+            TerminatingListener::class,
+            static fn(Application $app) => new TerminatingListener($app->make(CoreContract::class))
+        );
         $this->app->singleton(AgentCommand::class, function (Application $app) {
             /** @var array<string, mixed> $config */
             $config = $app['config']->get('dozor', []);
@@ -194,8 +228,20 @@ class DozorServiceProvider extends ServiceProvider
             Event::listen('*', [$this->app->make(ApplicationEventWatcher::class), 'handle']);
         }
 
+        Event::listen(PreparingResponse::class, $this->app->make(PreparingResponseListener::class));
+        Event::listen(ResponsePrepared::class, $this->app->make(ResponsePreparedListener::class));
+        Event::listen(RequestHandled::class, $this->app->make(RequestHandledListener::class));
+        Event::listen(Terminating::class, $this->app->make(TerminatingListener::class));
+        if ((bool) config('dozor.http.attach_middleware', true)) {
+            $this->app->booted(function (Application $app): void {
+                $handler = $this->app->make(RequestBootedHandler::class);
+                $handler($app);
+            });
+        }
+
         $this->callAfterResolving(Router::class, function (Router $router): void {
             $router->aliasMiddleware('dozor.trace', TraceRequest::class);
+            $router->aliasMiddleware('dozor.trace.bootstrap', TraceRequestBootstrap::class);
 
             if (!config('dozor.http.attach_middleware', true)) {
                 return;
@@ -209,6 +255,10 @@ class DozorServiceProvider extends ServiceProvider
 
                     if (!method_exists($router, 'hasMiddlewareGroup') || !$router->hasMiddlewareGroup($group)) {
                         continue;
+                    }
+
+                    if (method_exists($router, 'prependMiddlewareToGroup')) {
+                        $router->prependMiddlewareToGroup($group, TraceRequestBootstrap::class);
                     }
 
                     $router->pushMiddlewareToGroup($group, TraceRequest::class);

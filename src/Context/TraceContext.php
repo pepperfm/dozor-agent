@@ -12,9 +12,11 @@ final class TraceContext
     private array $openLifecycleStages = [];
 
     /**
-     * @var array<int, array{name: string, start_offset_ms: int, duration_ms: int, metadata: array<string, mixed>}>
+     * @var array<int, array{name: string, start_offset_ms: int, start_offset_us: int, duration_ms: int, duration_us: int, metadata: array<string, mixed>}>
      */
     private array $lifecycleStages = [];
+
+    private ?string $currentLifecycleStage = null;
 
     /**
      * @param array<string, mixed> $requestMeta
@@ -36,11 +38,14 @@ final class TraceContext
         }
 
         $startedAt ??= microtime(true);
+        $startOffsetUs = $this->offsetUs($startedAt);
 
         $this->lifecycleStages[] = [
             'name' => $name,
-            'start_offset_ms' => $this->offsetMs($startedAt),
+            'start_offset_ms' => max(0, (int) round($startOffsetUs / 1000)),
+            'start_offset_us' => $startOffsetUs,
             'duration_ms' => 0,
+            'duration_us' => 0,
             'metadata' => $metadata,
         ];
 
@@ -48,6 +53,7 @@ final class TraceContext
             'started_at' => $startedAt,
             'index' => array_key_last($this->lifecycleStages),
         ];
+        $this->currentLifecycleStage = $name;
     }
 
     /**
@@ -70,17 +76,23 @@ final class TraceContext
         }
 
         $endedAt ??= microtime(true);
-        $durationMs = max(1, (int) round(($endedAt - $startedAt) * 1000));
+        $durationUs = max(1, (int) round(($endedAt - $startedAt) * 1_000_000));
+        $durationMs = max(1, (int) round($durationUs / 1000));
         $existingStage = $this->lifecycleStages[$index];
         $existingMetadata = $existingStage['metadata'] ?? [];
 
         $this->lifecycleStages[$index]['duration_ms'] = $durationMs;
+        $this->lifecycleStages[$index]['duration_us'] = $durationUs;
         $this->lifecycleStages[$index]['metadata'] = array_merge(
             is_array($existingMetadata) ? $existingMetadata : [],
             $metadata,
         );
 
         unset($this->openLifecycleStages[$name]);
+
+        if ($this->currentLifecycleStage === $name) {
+            $this->currentLifecycleStage = null;
+        }
     }
 
     public function closeOpenLifecycleStages(?float $endedAt = null): void
@@ -97,20 +109,30 @@ final class TraceContext
     }
 
     /**
-     * @return array<int, array{name: string, start_offset_ms: int, duration_ms: int, metadata: array<string, mixed>}>
+     * @return array<int, array{name: string, start_offset_ms: int, start_offset_us: int, duration_ms: int, duration_us: int, metadata: array<string, mixed>}>
      */
     public function lifecycleStages(): array
     {
         return array_values($this->lifecycleStages);
     }
 
-    public function offsetMsAt(?float $timestamp = null): int
+    public function currentLifecycleStage(): ?string
     {
-        return $this->offsetMs($timestamp ?? microtime(true));
+        return $this->currentLifecycleStage;
     }
 
-    private function offsetMs(float $timestamp): int
+    public function offsetMsAt(?float $timestamp = null): int
     {
-        return max(0, (int) round(($timestamp - $this->startedAt) * 1000));
+        return max(0, (int) round($this->offsetUsAt($timestamp) / 1000));
+    }
+
+    public function offsetUsAt(?float $timestamp = null): int
+    {
+        return $this->offsetUs($timestamp ?? microtime(true));
+    }
+
+    private function offsetUs(float $timestamp): int
+    {
+        return max(0, (int) round(($timestamp - $this->startedAt) * 1_000_000));
     }
 }

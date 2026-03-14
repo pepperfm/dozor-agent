@@ -155,10 +155,12 @@ final class TraceBatchTransformer
                 ? $this->resolveRecordDurationMs($type, $recordPayload)
                 : 1;
             $happenedAt = Arr::get($record, 'happened_at');
+            $timestamp = Arr::get($record, 'timestamp');
             $offsetMs = $this->resolveOffsetMs(
                 is_string($happenedAt) ? $happenedAt : null,
                 $startedAt,
                 is_array($recordPayload) ? $recordPayload : [],
+                is_numeric($timestamp) ? (float) $timestamp : null,
             );
             [
                 'span_id' => $parentSpanId,
@@ -272,12 +274,30 @@ final class TraceBatchTransformer
      */
     private function resolveStartedAt(array $rootRecord, array $records): string
     {
+        $rootTimestamp = Arr::get($rootRecord, 'timestamp');
+        if (is_numeric($rootTimestamp)) {
+            try {
+                return Carbon::createFromTimestamp((float) $rootTimestamp)->toIso8601String();
+            } catch (Throwable) {
+                // fall through to happened_at path
+            }
+        }
+
         $rootHappenedAt = Arr::get($rootRecord, 'happened_at');
         if (is_string($rootHappenedAt) && $rootHappenedAt !== '') {
             return $rootHappenedAt;
         }
 
         foreach ($records as $record) {
+            $timestamp = Arr::get($record, 'timestamp');
+            if (is_numeric($timestamp)) {
+                try {
+                    return Carbon::createFromTimestamp((float) $timestamp)->toIso8601String();
+                } catch (Throwable) {
+                    // fall through to happened_at path
+                }
+            }
+
             $happenedAt = Arr::get($record, 'happened_at');
             if (is_string($happenedAt) && $happenedAt !== '') {
                 return $happenedAt;
@@ -546,7 +566,7 @@ final class TraceBatchTransformer
                 'id' => $phaseSpanId,
                 'parent_span_id' => $rootSpanId,
                 'kind' => 'lifecycle',
-                'name' => $this->formatDisplayLabel($stageName),
+                'name' => $this->lifecycleSpanDisplayName($stageName),
                 'start_offset_ms' => $startOffsetMs,
                 'duration_ms' => $stageDurationMs,
                 'connection' => null,
@@ -559,6 +579,7 @@ final class TraceBatchTransformer
                 'status_code' => null,
                 'metadata' => [
                     'phase' => $stageName,
+                    'legacy_phase' => $this->legacyPhaseAlias($stageName),
                     'phase_meta' => is_array($metadata) ? $metadata : [],
                 ],
             ];
@@ -580,8 +601,14 @@ final class TraceBatchTransformer
         }
 
         $middleware = $this->resolveMiddleware($rootPayload);
-        $middlewarePhaseId = $phaseSpanIds[RequestLifecycleStage::Middleware->value] ?? null;
-        $middlewarePhaseRange = $phaseRanges[RequestLifecycleStage::Middleware->value] ?? null;
+        $middlewarePhaseId = $phaseSpanIds[RequestLifecycleStage::BeforeMiddleware->value]
+            ?? $phaseSpanIds[RequestLifecycleStage::Middleware->value]
+            ?? $phaseSpanIds[RequestLifecycleStage::AfterMiddleware->value]
+            ?? null;
+        $middlewarePhaseRange = $phaseRanges[RequestLifecycleStage::BeforeMiddleware->value]
+            ?? $phaseRanges[RequestLifecycleStage::Middleware->value]
+            ?? $phaseRanges[RequestLifecycleStage::AfterMiddleware->value]
+            ?? null;
 
         if (
             is_string($middlewarePhaseId)
@@ -654,8 +681,13 @@ final class TraceBatchTransformer
                     continue;
                 }
 
-                $resolvedStage = RequestLifecycleStage::fromName($stageName);
-                if ($resolvedStage === null || !$resolvedStage->isRequestPhase()) {
+                $metadata = Arr::get($stage, 'metadata', []);
+                $normalizedStageName = $this->normalizeLifecycleStageName(
+                    $stageName,
+                    is_array($metadata) ? $metadata : [],
+                );
+
+                if ($normalizedStageName === null) {
                     continue;
                 }
 
@@ -669,9 +701,8 @@ final class TraceBatchTransformer
                     $stageDurationMs = max(1, $maxDuration - $startOffsetMs);
                 }
 
-                $metadata = Arr::get($stage, 'metadata', []);
                 $resolvedStages[] = [
-                    'name' => $resolvedStage->value,
+                    'name' => $normalizedStageName,
                     'start_offset_ms' => $startOffsetMs,
                     'duration_ms' => $stageDurationMs,
                     'metadata' => is_array($metadata) ? $metadata : [],
@@ -726,8 +757,8 @@ final class TraceBatchTransformer
             $phase = $preferredPhase;
         } elseif ($phaseFromOffset !== null && isset($phaseSpanIds[$phaseFromOffset])) {
             $phase = $phaseFromOffset;
-        } elseif (isset($phaseSpanIds[RequestLifecycleStage::Controller->value])) {
-            $phase = RequestLifecycleStage::Controller->value;
+        } elseif (isset($phaseSpanIds[RequestLifecycleStage::Action->value])) {
+            $phase = RequestLifecycleStage::Action->value;
         }
 
         return [
@@ -745,7 +776,7 @@ final class TraceBatchTransformer
             'job',
             'exception',
             'event',
-            'log' => RequestLifecycleStage::Controller->value,
+            'log' => RequestLifecycleStage::Action->value,
             default => null,
         };
     }
@@ -771,9 +802,10 @@ final class TraceBatchTransformer
     {
         return [
             RequestLifecycleStage::Bootstrap->value,
-            RequestLifecycleStage::Middleware->value,
-            RequestLifecycleStage::Controller->value,
+            RequestLifecycleStage::BeforeMiddleware->value,
+            RequestLifecycleStage::Action->value,
             RequestLifecycleStage::Render->value,
+            RequestLifecycleStage::AfterMiddleware->value,
             RequestLifecycleStage::Sending->value,
             RequestLifecycleStage::Terminating->value,
         ];
@@ -1229,6 +1261,45 @@ final class TraceBatchTransformer
     }
 
     /**
+     * @param array<string, mixed> $metadata
+     */
+    private function normalizeLifecycleStageName(string $stageName, array $metadata): ?string
+    {
+        $resolvedStage = RequestLifecycleStage::fromName($stageName);
+        if ($resolvedStage === null || !$resolvedStage->isRequestPhase()) {
+            return null;
+        }
+
+        return match ($resolvedStage) {
+            RequestLifecycleStage::Middleware => Arr::get($metadata, 'segment') === 'after_controller'
+                ? RequestLifecycleStage::AfterMiddleware->value
+                : RequestLifecycleStage::BeforeMiddleware->value,
+            RequestLifecycleStage::Controller => RequestLifecycleStage::Action->value,
+            default => $resolvedStage->value,
+        };
+    }
+
+    private function lifecycleSpanDisplayName(string $phaseName): string
+    {
+        return match ($phaseName) {
+            RequestLifecycleStage::BeforeMiddleware->value,
+            RequestLifecycleStage::AfterMiddleware->value => 'Middleware',
+            RequestLifecycleStage::Action->value => 'Controller',
+            default => $this->formatDisplayLabel($phaseName),
+        };
+    }
+
+    private function legacyPhaseAlias(string $phaseName): ?string
+    {
+        return match ($phaseName) {
+            RequestLifecycleStage::BeforeMiddleware->value,
+            RequestLifecycleStage::AfterMiddleware->value => RequestLifecycleStage::Middleware->value,
+            RequestLifecycleStage::Action->value => RequestLifecycleStage::Controller->value,
+            default => null,
+        };
+    }
+
+    /**
      * @param array<string, mixed> $payload
      */
     private function resolveQueryNormalizedSignature(array $payload): ?string
@@ -1249,11 +1320,27 @@ final class TraceBatchTransformer
     /**
      * @param array<string, mixed> $payload
      */
-    private function resolveOffsetMs(?string $eventHappenedAt, string $traceStartedAt, array $payload = []): int
+    private function resolveOffsetMs(?string $eventHappenedAt, string $traceStartedAt, array $payload = [], ?float $eventTimestamp = null): int
     {
+        $payloadStartOffsetUs = Arr::get($payload, 'start_offset_us');
+        if (is_numeric($payloadStartOffsetUs)) {
+            return max(0, (int) round(((float) $payloadStartOffsetUs) / 1000));
+        }
+
         $payloadStartOffsetMs = Arr::get($payload, 'start_offset_ms');
         if (is_numeric($payloadStartOffsetMs)) {
             return max(0, (int) round((float) $payloadStartOffsetMs));
+        }
+
+        $payloadEndOffsetUs = Arr::get($payload, 'end_offset_us');
+        if (is_numeric($payloadEndOffsetUs)) {
+            $durationUs = $this->resolveNumeric($payload, ['duration_us'], -1);
+            if ($durationUs >= 0) {
+                $endOffsetUs = max(0, (int) round((float) $payloadEndOffsetUs));
+                $startOffsetUs = max(0, $endOffsetUs - (int) round($durationUs));
+
+                return max(0, (int) round($startOffsetUs / 1000));
+            }
         }
 
         $payloadEndOffsetMs = Arr::get($payload, 'end_offset_ms');
@@ -1265,6 +1352,17 @@ final class TraceBatchTransformer
         }
 
         if ($eventHappenedAt === null || $eventHappenedAt === '') {
+            if (is_numeric($eventTimestamp)) {
+                try {
+                    $eventMs = (int) round($eventTimestamp * 1000);
+                    $startMs = Carbon::parse($traceStartedAt)->valueOf();
+
+                    return max(0, $eventMs - $startMs);
+                } catch (Throwable) {
+                    return 0;
+                }
+            }
+
             return 0;
         }
 

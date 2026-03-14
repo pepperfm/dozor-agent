@@ -184,9 +184,9 @@ final class TraceBatchTransformerTest extends TestCase
         self::assertSame($controllerPhase['id'] ?? null, $querySpan['parent_span_id'] ?? null);
         self::assertSame($controllerPhase['id'] ?? null, $cacheSpan['parent_span_id'] ?? null);
         self::assertSame($controllerPhase['id'] ?? null, $outgoingSpan['parent_span_id'] ?? null);
-        self::assertSame('controller', $querySpan['metadata']['lifecycle_phase'] ?? null);
-        self::assertSame('controller', $cacheSpan['metadata']['lifecycle_phase'] ?? null);
-        self::assertSame('controller', $outgoingSpan['metadata']['lifecycle_phase'] ?? null);
+        self::assertSame('action', $querySpan['metadata']['lifecycle_phase'] ?? null);
+        self::assertSame('action', $cacheSpan['metadata']['lifecycle_phase'] ?? null);
+        self::assertSame('action', $outgoingSpan['metadata']['lifecycle_phase'] ?? null);
         self::assertSame('Auth', $authMiddleware['name'] ?? null);
         self::assertSame('Throttle:api', $throttleMiddleware['name'] ?? null);
 

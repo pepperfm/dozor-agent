@@ -7,95 +7,145 @@ namespace Dozor\Tests\Unit;
 use Dozor\Context\TraceContext;
 use Dozor\Contracts\DozorContract;
 use Dozor\Http\Middleware\TraceRequest;
+use Dozor\Http\Middleware\TraceRequestBootstrap;
 use Dozor\Tests\TestCase;
+use Dozor\Tracing\RequestLifecycleStage;
 use Illuminate\Http\Request;
 use RuntimeException;
 use Symfony\Component\HttpFoundation\Response;
 
 final class TraceRequestFailSafeTest extends TestCase
 {
-    public function test_middleware_records_full_request_lifecycle_with_separate_middleware_segments(): void
+    public function test_bootstrap_middleware_starts_before_middleware_and_finishes_on_terminate(): void
     {
-        $beginStages = [];
-        $endStages = [];
-
         $core = $this->createMock(DozorContract::class);
         $core->method('enabled')->willReturn(true);
-        $core->method('beginRequest')->willReturn(new TraceContext('trace-lifecycle', microtime(true)));
-        $core->method('beginLifecycleStage')->willReturnCallback(
-            static function (string $stage, array $metadata = []) use (&$beginStages): void {
-                $beginStages[] = ['stage' => $stage, 'metadata' => $metadata];
-            }
-        );
-        $core->method('endLifecycleStage')->willReturnCallback(
-            static function (string $stage, array $metadata = []) use (&$endStages): void {
-                $endStages[] = ['stage' => $stage, 'metadata' => $metadata];
-            }
-        );
+        $core->method('hasActiveRequestTrace')->willReturn(false);
+        $core->method('lifecycleStageIs')->willReturn(false);
+        $core->expects($this->once())->method('beginRequest')->willReturn(new TraceContext('trace-1', microtime(true)));
+        $core->expects($this->once())
+            ->method('transitionLifecycleStage')
+            ->with(RequestLifecycleStage::BeforeMiddleware->value);
         $core->expects($this->once())->method('finishRequest');
         $core->expects($this->once())->method('digest');
 
-        $middleware = new TraceRequest($core);
-        $request = Request::create('/lifecycle', 'GET');
-
+        $middleware = new TraceRequestBootstrap($core);
+        $request = Request::create('/health', 'GET');
+        $request->server->set('REQUEST_TIME_FLOAT', microtime(true) - 0.01);
         $response = $middleware->handle($request, static fn() => new Response('ok', 200));
         $middleware->terminate($request, $response);
 
-        self::assertSame(
-            ['bootstrap', 'middleware', 'controller', 'render', 'middleware', 'sending'],
-            array_map(static fn(array $item): string => (string) $item['stage'], $beginStages),
-        );
-        self::assertSame(
-            ['bootstrap', 'middleware', 'controller', 'render', 'middleware'],
-            array_map(static fn(array $item): string => (string) $item['stage'], $endStages),
-        );
-        self::assertSame('before_controller', $beginStages[1]['metadata']['segment'] ?? null);
-        self::assertSame('before_controller', $endStages[1]['metadata']['segment'] ?? null);
-        self::assertSame('after_controller', $beginStages[4]['metadata']['segment'] ?? null);
-        self::assertSame('after_controller', $endStages[4]['metadata']['segment'] ?? null);
+        self::assertSame(200, $response->getStatusCode());
     }
 
-    public function test_middleware_swallows_telemetry_errors_and_returns_response(): void
+    public function test_action_middleware_transitions_to_action_and_after_middleware(): void
     {
-        $core = $this->createStub(DozorContract::class);
+        $transitions = [];
+
+        $core = $this->createMock(DozorContract::class);
         $core->method('enabled')->willReturn(true);
-        $core->method('beginRequest')->willThrowException(new RuntimeException('beginRequest failed'));
-        $core->method('beginLifecycleStage')->willThrowException(new RuntimeException('beginLifecycleStage failed'));
-        $core->method('endLifecycleStage')->willThrowException(new RuntimeException('endLifecycleStage failed'));
-        $core->method('finishRequest')->willThrowException(new RuntimeException('finishRequest failed'));
-        $core->method('digest')->willThrowException(new RuntimeException('digest failed'));
-        $core->method('recordException')->willThrowException(new RuntimeException('recordException failed'));
+        $core->method('lifecycleStageIs')->willReturnCallback(
+            static fn(string $stage): bool => $stage === RequestLifecycleStage::Action->value
+        );
+        $core->expects($this->exactly(2))
+            ->method('transitionLifecycleStage')
+            ->willReturnCallback(static function (string $stage) use (&$transitions): void {
+                $transitions[] = $stage;
+            });
 
         $middleware = new TraceRequest($core);
-        $request = Request::create('/health', 'GET');
-
+        $request = Request::create('/timeline', 'GET');
         $response = $middleware->handle($request, static fn() => new Response('ok', 200));
 
         self::assertSame(200, $response->getStatusCode());
-
-        $middleware->terminate($request, $response);
-        self::assertTrue(true);
+        self::assertSame(
+            [RequestLifecycleStage::Action->value, RequestLifecycleStage::AfterMiddleware->value],
+            $transitions,
+        );
     }
 
-    public function test_middleware_rethrows_business_exception_even_when_telemetry_fails(): void
+    public function test_action_middleware_rethrows_business_exception_and_records_it(): void
     {
-        $core = $this->createStub(DozorContract::class);
+        $transitions = [];
+
+        $core = $this->createMock(DozorContract::class);
         $core->method('enabled')->willReturn(true);
-        $core->method('beginRequest')->willReturn(new TraceContext('trace-1', microtime(true)));
-        $core->method('beginLifecycleStage')->willThrowException(new RuntimeException('beginLifecycleStage failed'));
-        $core->method('endLifecycleStage')->willThrowException(new RuntimeException('endLifecycleStage failed'));
-        $core->method('finishRequest')->willThrowException(new RuntimeException('finishRequest failed'));
-        $core->method('digest')->willThrowException(new RuntimeException('digest failed'));
-        $core->method('recordException')->willThrowException(new RuntimeException('recordException failed'));
+        $core->method('lifecycleStageIs')->willReturnCallback(
+            static fn(string $stage): bool => $stage === RequestLifecycleStage::Action->value
+        );
+        $core->method('transitionLifecycleStage')->willReturnCallback(
+            static function (string $stage) use (&$transitions): void {
+                $transitions[] = $stage;
+            }
+        );
+        $core->expects($this->once())->method('recordException');
 
         $middleware = new TraceRequest($core);
         $request = Request::create('/error', 'GET');
 
-        $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessage('business exception');
+        try {
+            $middleware->handle($request, static function (): Response {
+                throw new RuntimeException('business exception');
+            });
+            self::fail('Expected RuntimeException was not thrown.');
+        } catch (RuntimeException $e) {
+            self::assertSame('business exception', $e->getMessage());
+            self::assertSame(
+                [RequestLifecycleStage::Action->value, RequestLifecycleStage::AfterMiddleware->value],
+                $transitions,
+            );
+        }
+    }
 
-        $middleware->handle($request, static function (): Response {
-            throw new RuntimeException('business exception');
-        });
+    public function test_nested_middlewares_record_business_exception_once(): void
+    {
+        $core = $this->createMock(DozorContract::class);
+        $core->method('enabled')->willReturn(true);
+        $core->method('hasActiveRequestTrace')->willReturn(true);
+        $core->method('lifecycleStageIs')->willReturnCallback(
+            static fn(string $stage): bool => $stage === RequestLifecycleStage::Action->value
+        );
+        $core->expects($this->once())->method('recordException');
+
+        $bootstrap = new TraceRequestBootstrap($core);
+        $action = new TraceRequest($core);
+        $request = Request::create('/error', 'GET');
+
+        try {
+            $bootstrap->handle($request, static fn() => $action->handle(
+                $request,
+                static function (): Response {
+                    throw new RuntimeException('business exception');
+                },
+            ));
+            self::fail('Expected RuntimeException was not thrown.');
+        } catch (RuntimeException $e) {
+            self::assertSame('business exception', $e->getMessage());
+        }
+    }
+
+    public function test_middlewares_swallow_telemetry_errors_and_keep_request_flow_alive(): void
+    {
+        $core = $this->createStub(DozorContract::class);
+        $core->method('enabled')->willReturn(true);
+        $core->method('hasActiveRequestTrace')->willReturn(false);
+        $core->method('beginRequest')->willThrowException(new RuntimeException('beginRequest failed'));
+        $core->method('transitionLifecycleStage')->willThrowException(new RuntimeException('transition failed'));
+        $core->method('finishRequest')->willThrowException(new RuntimeException('finishRequest failed'));
+        $core->method('digest')->willThrowException(new RuntimeException('digest failed'));
+        $core->method('recordException')->willThrowException(new RuntimeException('recordException failed'));
+        $core->method('lifecycleStageIs')->willReturn(false);
+
+        $bootstrap = new TraceRequestBootstrap($core);
+        $action = new TraceRequest($core);
+        $request = Request::create('/health', 'GET');
+
+        $response = $bootstrap->handle($request, static fn() => $action->handle(
+            $request,
+            static fn() => new Response('ok', 200),
+        ));
+        $bootstrap->terminate($request, $response);
+
+        self::assertSame(200, $response->getStatusCode());
     }
 }

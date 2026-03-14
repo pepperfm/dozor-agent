@@ -12,8 +12,7 @@ use Throwable;
 
 final readonly class TraceRequest
 {
-    private const STARTED_AT_ATTRIBUTE = 'dozor.started_at';
-    private const PENDING_FINISH_ATTRIBUTE = 'dozor.pending_finish';
+    private const EXCEPTION_RECORDED_ATTRIBUTE = 'dozor.exception_recorded';
 
     public function __construct(private DozorContract $core)
     {
@@ -25,78 +24,46 @@ final readonly class TraceRequest
             return $next($request);
         }
 
-        $startedAt = microtime(true);
-        $this->capture(fn() => $this->core->beginRequest($request, $startedAt));
-        $request->attributes->set(self::STARTED_AT_ATTRIBUTE, $startedAt);
-        $request->attributes->set(self::PENDING_FINISH_ATTRIBUTE, false);
-        $this->capture(fn() => $this->core->beginLifecycleStage(RequestLifecycleStage::Bootstrap->value));
-        $this->capture(fn() => $this->core->endLifecycleStage(RequestLifecycleStage::Bootstrap->value));
-        $this->capture(fn() => $this->core->beginLifecycleStage(RequestLifecycleStage::Middleware->value, [
-            'middleware_count' => count($request->route()?->gatherMiddleware() ?? []),
-            'segment' => 'before_controller',
-        ]));
-        $this->capture(fn() => $this->core->endLifecycleStage(RequestLifecycleStage::Middleware->value, [
-            'segment' => 'before_controller',
-        ]));
-        $this->capture(fn() => $this->core->beginLifecycleStage(RequestLifecycleStage::Controller->value));
+        $this->capture(fn() => $this->core->transitionLifecycleStage(RequestLifecycleStage::Action->value));
 
         try {
             $response = $next($request);
-            $this->capture(fn() => $this->core->endLifecycleStage(RequestLifecycleStage::Controller->value));
-            $this->capture(fn() => $this->core->beginLifecycleStage(RequestLifecycleStage::Render->value));
-            $this->capture(fn() => $this->core->endLifecycleStage(RequestLifecycleStage::Render->value));
-            $this->capture(fn() => $this->core->beginLifecycleStage(RequestLifecycleStage::Middleware->value, [
-                'segment' => 'after_controller',
-            ]));
-            $this->capture(fn() => $this->core->endLifecycleStage(RequestLifecycleStage::Middleware->value, [
-                'segment' => 'after_controller',
-            ]));
-            $this->capture(fn() => $this->core->beginLifecycleStage(RequestLifecycleStage::Sending->value));
-            $request->attributes->set(self::PENDING_FINISH_ATTRIBUTE, true);
+
+            if ($this->core->lifecycleStageIs(RequestLifecycleStage::Action->value)
+                || $this->core->lifecycleStageIs(RequestLifecycleStage::Render->value)
+            ) {
+                $this->capture(fn() => $this->core->transitionLifecycleStage(RequestLifecycleStage::AfterMiddleware->value));
+            }
 
             return $response;
         } catch (Throwable $e) {
-            $this->capture(fn() => $this->core->endLifecycleStage(RequestLifecycleStage::Controller->value, [
-                'exception_class' => $e::class,
-            ]));
-            $this->capture(fn() => $this->core->beginLifecycleStage(RequestLifecycleStage::Middleware->value, [
-                'segment' => 'after_controller',
-                'exception_class' => $e::class,
-            ]));
-            $this->capture(fn() => $this->core->endLifecycleStage(RequestLifecycleStage::Middleware->value, [
-                'segment' => 'after_controller',
-                'exception_class' => $e::class,
-            ]));
-            $this->capture(fn() => $this->core->beginLifecycleStage(RequestLifecycleStage::Sending->value));
-            $this->capture(fn() => $this->core->recordException($e, [
-                'phase' => 'http',
-                'url' => $request->fullUrl(),
-                'method' => $request->method(),
-            ]));
-            $this->capture(fn() => $this->core->finishRequest($request, null, $startedAt, $e));
-            $this->capture(fn() => $this->core->digest());
+            if ($this->core->lifecycleStageIs(RequestLifecycleStage::Action->value)
+                || $this->core->lifecycleStageIs(RequestLifecycleStage::Render->value)
+            ) {
+                $this->capture(fn() => $this->core->transitionLifecycleStage(RequestLifecycleStage::AfterMiddleware->value));
+            }
+
+            $this->recordExceptionOnce($request, $e);
 
             throw $e;
         }
     }
 
-    public function terminate(Request $request, \Symfony\Component\HttpFoundation\Response $response): void
+    private function recordExceptionOnce(Request $request, Throwable $e): void
     {
-        if (!$this->core->enabled()) {
+        if ((bool) $request->attributes->get(self::EXCEPTION_RECORDED_ATTRIBUTE, false)) {
             return;
         }
 
-        if ((bool) $request->attributes->get(self::PENDING_FINISH_ATTRIBUTE, false) !== true) {
-            return;
-        }
+        $this->capture(function () use ($request, $e): void {
+            $this->core->recordException($e, [
+                'phase' => 'http',
+                'url' => $request->fullUrl(),
+                'method' => $request->method(),
+            ]);
 
-        $startedAt = $request->attributes->get(self::STARTED_AT_ATTRIBUTE);
-        if (!is_float($startedAt)) {
-            $startedAt = microtime(true);
-        }
-
-        $this->capture(fn() => $this->core->finishRequest($request, $response, $startedAt));
-        $this->capture(fn() => $this->core->digest());
+            $request->attributes->set(self::EXCEPTION_RECORDED_ATTRIBUTE, true);
+        });
     }
 
     private function capture(callable $callback): void

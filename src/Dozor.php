@@ -126,11 +126,20 @@ class Dozor implements DozorContract
                 $requestMeta['headers'] = $this->redactor->redactHeaders($request->headers->all());
             }
 
-            return $this->currentTrace = new TraceContext(
+            $trace = new TraceContext(
                 traceId: $traceId,
                 startedAt: $startedAt,
                 requestMeta: $requestMeta,
             );
+
+            if (!$this->currentRequestSuppressed) {
+                $trace->beginLifecycleStage(
+                    RequestLifecycleStage::Bootstrap->value,
+                    startedAt: $startedAt,
+                );
+            }
+
+            return $this->currentTrace = $trace;
         } catch (Throwable $e) {
             $this->reportRuntimeException('begin_request', $e);
             $this->currentRequestSuppressed = true;
@@ -158,7 +167,7 @@ class Dozor implements DozorContract
             return;
         }
 
-        if (!$resolvedStage->isRequestPhase()) {
+        if (!$resolvedStage->isLifecyclePhase()) {
             return;
         }
 
@@ -179,11 +188,60 @@ class Dozor implements DozorContract
             return;
         }
 
-        if (!$resolvedStage->isRequestPhase()) {
+        if (!$resolvedStage->isLifecyclePhase()) {
             return;
         }
 
         $this->currentTrace?->endLifecycleStage($resolvedStage->value, $metadata);
+    }
+
+    /**
+     * @param array<string, mixed> $metadata
+     */
+    public function transitionLifecycleStage(string $stage, array $metadata = []): void
+    {
+        if ($this->currentRequestSuppressed) {
+            return;
+        }
+
+        $resolvedStage = RequestLifecycleStage::fromName($stage);
+        if ($resolvedStage === null || !$resolvedStage->isLifecyclePhase()) {
+            return;
+        }
+
+        $trace = $this->currentTrace;
+        if ($trace === null) {
+            return;
+        }
+
+        $nextStage = $resolvedStage->value;
+        $currentStage = $trace->currentLifecycleStage();
+        if ($currentStage === $nextStage) {
+            return;
+        }
+
+        $now = microtime(true);
+
+        if (is_string($currentStage) && $currentStage !== '') {
+            $trace->endLifecycleStage($currentStage, endedAt: $now);
+        }
+
+        $trace->beginLifecycleStage($nextStage, $metadata, startedAt: $now);
+    }
+
+    public function lifecycleStageIs(string $stage): bool
+    {
+        $resolvedStage = RequestLifecycleStage::fromName($stage);
+        if ($resolvedStage === null || !$resolvedStage->isLifecyclePhase()) {
+            return false;
+        }
+
+        return $this->currentTrace?->currentLifecycleStage() === $resolvedStage->value;
+    }
+
+    public function hasActiveRequestTrace(): bool
+    {
+        return $this->currentTrace !== null;
     }
 
     public function finishRequest(
@@ -201,9 +259,25 @@ class Dozor implements DozorContract
                 return;
             }
 
-            $this->endLifecycleStage(RequestLifecycleStage::Sending->value);
-            $this->beginLifecycleStage(RequestLifecycleStage::Terminating->value);
-            $this->endLifecycleStage(RequestLifecycleStage::Terminating->value);
+            if (!$this->lifecycleStageIs(RequestLifecycleStage::Sending->value)
+                && !$this->lifecycleStageIs(RequestLifecycleStage::Terminating->value)
+                && !$this->lifecycleStageIs(RequestLifecycleStage::End->value)
+            ) {
+                $this->transitionLifecycleStage(RequestLifecycleStage::Sending->value);
+            }
+
+            if (
+                !$this->lifecycleStageIs(RequestLifecycleStage::Terminating->value)
+                && !$this->lifecycleStageIs(RequestLifecycleStage::End->value)
+            ) {
+                $this->transitionLifecycleStage(RequestLifecycleStage::Terminating->value);
+            }
+
+            if (!$this->lifecycleStageIs(RequestLifecycleStage::End->value)) {
+                $this->transitionLifecycleStage(RequestLifecycleStage::End->value);
+            }
+
+            $this->endLifecycleStage(RequestLifecycleStage::End->value);
             $this->currentTrace?->closeOpenLifecycleStages();
 
             $traceId = $this->currentTrace?->traceId ?? $this->makeTraceId();
@@ -277,7 +351,7 @@ class Dozor implements DozorContract
                 'time_ms' => (float) $event->time,
                 'connection' => $event->connectionName,
                 'bindings_count' => count($event->bindings),
-            ], durationMs: (int) round((float) $event->time)),
+            ], durationUs: (int) round(((float) $event->time) * 1000)),
         ]);
     }
 
@@ -517,6 +591,7 @@ class Dozor implements DozorContract
 
             $record['deployment'] ??= $this->config('deployment');
             $record['release'] ??= $this->config('release', $this->config('deployment'));
+            $record['timestamp'] ??= microtime(true);
 
             $payload = Arr::get($record, 'payload');
             if (is_array($payload)) {
@@ -603,31 +678,67 @@ class Dozor implements DozorContract
      *
      * @return array<string, mixed>
      */
-    private function attachSpanOffsets(array $payload, ?int $durationMs = null): array
+    private function attachSpanOffsets(array $payload, ?int $durationMs = null, ?int $durationUs = null): array
     {
         $trace = $this->currentTrace;
         if ($trace === null) {
             return $payload;
         }
 
-        $endOffsetMs = $trace->offsetMsAt();
-        $resolvedDurationMs = $durationMs;
-        if ($resolvedDurationMs === null && is_numeric(Arr::get($payload, 'duration_ms'))) {
-            $resolvedDurationMs = max(1, (int) round((float) Arr::get($payload, 'duration_ms', 1)));
+        $endOffsetUs = $trace->offsetUsAt();
+        $resolvedDurationUs = $durationUs;
+        if ($resolvedDurationUs === null && $durationMs !== null) {
+            $resolvedDurationUs = max(1, $durationMs * 1000);
         }
 
-        if ($resolvedDurationMs !== null) {
-            $resolvedDurationMs = max(1, $resolvedDurationMs);
-            $payload['duration_ms'] = $resolvedDurationMs;
-            $payload['start_offset_ms'] = max(0, $endOffsetMs - $resolvedDurationMs);
-            $payload['end_offset_ms'] = $endOffsetMs;
+        if ($resolvedDurationUs === null && is_numeric(Arr::get($payload, 'duration_us'))) {
+            $resolvedDurationUs = max(1, (int) round((float) Arr::get($payload, 'duration_us', 1)));
+        }
+
+        if ($resolvedDurationUs === null) {
+            $durationValue = $this->resolveNumeric(
+                $payload,
+                ['duration_ms', 'time_ms'],
+                default: -1.0,
+            );
+
+            if ($durationValue >= 0) {
+                $resolvedDurationUs = max(1, (int) round($durationValue * 1000));
+            }
+        }
+
+        if ($resolvedDurationUs !== null) {
+            $resolvedDurationUs = max(1, $resolvedDurationUs);
+            $payload['duration_us'] = $resolvedDurationUs;
+            $payload['duration_ms'] = max(1, (int) round($resolvedDurationUs / 1000));
+            $payload['start_offset_us'] = max(0, $endOffsetUs - $resolvedDurationUs);
+            $payload['end_offset_us'] = $endOffsetUs;
+            $payload['start_offset_ms'] = max(0, (int) round(((int) $payload['start_offset_us']) / 1000));
+            $payload['end_offset_ms'] = max(0, (int) round($endOffsetUs / 1000));
 
             return $payload;
         }
 
-        $payload['start_offset_ms'] = $endOffsetMs;
+        $payload['start_offset_us'] = $endOffsetUs;
+        $payload['start_offset_ms'] = max(0, (int) round($endOffsetUs / 1000));
 
         return $payload;
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     * @param array<int, string> $keys
+     */
+    private function resolveNumeric(array $payload, array $keys, float $default): float
+    {
+        foreach ($keys as $key) {
+            $value = Arr::get($payload, $key);
+            if (is_numeric($value)) {
+                return (float) $value;
+            }
+        }
+
+        return $default;
     }
 
     private function jobKey(JobProcessing|JobProcessed|JobFailed $event): string

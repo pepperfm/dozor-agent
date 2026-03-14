@@ -42,6 +42,15 @@ interface DozorContract
     public function endLifecycleStage(string $stage, array $metadata = []): void;
 
     /**
+     * @param array<string, mixed> $metadata
+     */
+    public function transitionLifecycleStage(string $stage, array $metadata = []): void;
+
+    public function lifecycleStageIs(string $stage): bool;
+
+    public function hasActiveRequestTrace(): bool;
+
+    /**
      * @param array<string, mixed> $context
      */
     public function recordException(Throwable $e, array $context = []): void;
