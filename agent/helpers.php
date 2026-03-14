@@ -18,6 +18,7 @@ use function intval;
 use function is_callable;
 use function stream_get_meta_data;
 use function stream_set_timeout;
+use function sprintf;
 use function strlen;
 use function substr;
 
@@ -55,18 +56,47 @@ function fwrite_all($stream, callable|string $payload): void
 function fread_all($stream, int $length): string
 {
     $content = '';
-    $attempts = 0;
-
-    do {
-        $thisRead = fread($stream, $length);
+    while (strlen($content) < $length) {
+        $remaining = $length - strlen($content);
+        $thisRead = fread($stream, $remaining);
 
         if ($thisRead === false) {
             throw runtime_exception_with_steam_meta('Unable to read from stream', $stream);
         }
 
+        if ($thisRead === '') {
+            if (feof($stream)) {
+                break;
+            }
+
+            $meta = stream_get_meta_data($stream);
+            if (($meta['timed_out'] ?? false) === true) {
+                throw runtime_exception_with_steam_meta(
+                    sprintf(
+                        'Read timed out before receiving full frame [expected: %d bytes, received: %d bytes]',
+                        $length,
+                        strlen($content),
+                    ),
+                    $stream,
+                );
+            }
+
+            continue;
+        }
+
         $content .= $thisRead;
-        $attempts++;
-    } while (strlen($content) < $length && !feof($stream) && $attempts < 5);
+    }
+
+    if (strlen($content) < $length) {
+        throw runtime_exception_with_steam_meta(
+            sprintf(
+                'Incomplete stream read [expected: %d bytes, received: %d bytes]',
+                $length,
+                strlen($content),
+            ),
+            $stream,
+        );
+    }
 
     return $content;
 }

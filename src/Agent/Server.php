@@ -7,6 +7,7 @@ namespace Dozor\Agent;
 use Dozor\Agent\Transport\HostedIngestTransport;
 use Dozor\Telemetry\AgentRuntimeState;
 use Dozor\Tracing\TraceBatchTransformer;
+use JsonException;
 use Symfony\Component\Console\Output\OutputInterface;
 use Throwable;
 
@@ -16,14 +17,21 @@ use function defined;
 use function Dozor\fclose_safely;
 use function Dozor\fread_all;
 use function Dozor\fwrite_all;
+use function Dozor\stream_configure_read_timeout;
 use function function_exists;
 use function is_array;
 use function is_resource;
 use function max;
 use function microtime;
+use function sprintf;
+use function stream_get_meta_data;
+use function stream_socket_get_name;
+use function strlen;
 
 final class Server
 {
+    private const MAX_FRAME_BYTES = 1_048_576;
+
     private bool $running = true;
 
     private float $lastFlushAt = 0.0;
@@ -101,6 +109,12 @@ final class Server
                 $this->handleClient($client);
                 fwrite_all($client, '2:OK');
             } catch (Throwable $e) {
+                logger()->error('dozor.agent.ingest.client_error', [
+                    'message' => $e->getMessage(),
+                    'class' => $e::class,
+                    'max_frame_bytes' => self::MAX_FRAME_BYTES,
+                    ...$this->makeClientLogContext($client),
+                ]);
                 $this->line('Agent error: ' . $e->getMessage());
                 @fwrite($client, '5:ER');
             } finally {
@@ -151,6 +165,8 @@ final class Server
      */
     private function handleClient($client): void
     {
+        stream_configure_read_timeout($client, 1.0);
+
         $length = $this->readFrameLength($client);
         $frame = fread_all($client, $length);
         $parts = explode(':', $frame, 3);
@@ -170,7 +186,19 @@ final class Server
             return;
         }
 
-        $records = json_decode($payload, true, 512, JSON_THROW_ON_ERROR);
+        try {
+            $records = json_decode($payload, true, 512, JSON_THROW_ON_ERROR);
+        } catch (JsonException $exception) {
+            throw new \RuntimeException(
+                sprintf(
+                    'Invalid ingest payload JSON [bytes: %d, error: %s]',
+                    strlen($payload),
+                    $exception->getMessage(),
+                ),
+                previous: $exception,
+            );
+        }
+
         if (!is_array($records)) {
             throw new \RuntimeException('Decoded payload is not a record list');
         }
@@ -213,7 +241,32 @@ final class Server
             throw new \RuntimeException("Invalid frame length [$buffer]");
         }
 
-        return (int) $buffer;
+        $length = (int) $buffer;
+        if ($length > self::MAX_FRAME_BYTES) {
+            throw new \RuntimeException(
+                sprintf('Frame length exceeds maximum [%d > %d]', $length, self::MAX_FRAME_BYTES),
+            );
+        }
+
+        return $length;
+    }
+
+    /**
+     * @param resource $client
+     *
+     * @return array<string, int|string|bool|null>
+     */
+    private function makeClientLogContext($client): array
+    {
+        $meta = stream_get_meta_data($client);
+        $peer = @stream_socket_get_name($client, true);
+
+        return [
+            'peer' => $peer === false ? null : $peer,
+            'timed_out' => (bool) ($meta['timed_out'] ?? false),
+            'eof' => (bool) ($meta['eof'] ?? false),
+            'unread_bytes' => (int) ($meta['unread_bytes'] ?? 0),
+        ];
     }
 
     /**
