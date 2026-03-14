@@ -401,6 +401,47 @@ final class TraceBatchTransformerTest extends TestCase
         self::assertSame('select * from accounts where email = ?', $spans[1]['sql_text'] ?? null);
     }
 
+    public function test_it_returns_integer_duration_when_computed_from_happened_at_range(): void
+    {
+        $records = [
+            [
+                'type' => 'request',
+                'trace_id' => 'trace-source-5',
+                'happened_at' => '2026-03-14T12:00:00.100100+00:00',
+                'payload' => [
+                    'method' => 'GET',
+                    'path' => '/duration-range',
+                    'url' => 'https://app.example.test/duration-range',
+                    'status' => 200,
+                ],
+            ],
+            [
+                'type' => 'event',
+                'trace_id' => 'trace-source-5',
+                'happened_at' => '2026-03-14T12:00:00.150600+00:00',
+                'payload' => [
+                    'name' => 'processing.finished',
+                ],
+            ],
+        ];
+
+        $transformer = new TraceBatchTransformer(
+            appName: 'Storefront',
+            appToken: 'token',
+            environment: 'production',
+            serverName: 'node-1',
+            maxSpansPerTrace: 50,
+        );
+
+        $payload = $transformer->transform($records);
+        self::assertIsArray($payload['traces'] ?? null);
+        self::assertCount(1, $payload['traces']);
+
+        $trace = $payload['traces'][0];
+        self::assertIsInt($trace['duration_ms'] ?? null);
+        self::assertGreaterThan(0, $trace['duration_ms']);
+    }
+
     /**
      * @param array<int, mixed> $spans
      *

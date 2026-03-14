@@ -965,7 +965,7 @@ final class TraceBatchTransformer
         }
 
         if ($firstAt !== null && $lastAt !== null) {
-            return max(1, $lastAt - $firstAt);
+            return max(1, (int) round($lastAt - $firstAt));
         }
 
         return max(1, $dbTimeMs + $externalTimeMs + $jobTimeMs);
