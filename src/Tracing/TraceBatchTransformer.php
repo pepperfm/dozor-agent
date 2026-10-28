@@ -125,6 +125,15 @@ final class TraceBatchTransformer
             $spans[] = $rootSpan;
         }
 
+        // Transport batches can contain only early query/HTTP records and no
+        // terminal request root yet. Do not lose the first record of such a batch.
+        if (!in_array($rootType, ['request', 'command', 'job', 'heartbeat'], true)) {
+            $firstSpan = $this->buildSpanFromRecord($rootRecord, 0, is_array($rootSpan) ? $rootSpan['id'] : null);
+            if ($firstSpan !== null && count($spans) < $this->maxSpansPerTrace) {
+                $spans[] = $firstSpan;
+            }
+        }
+
         $rootSpanId = is_array($rootSpan) && is_string(Arr::get($rootSpan, 'id'))
             ? (string) Arr::get($rootSpan, 'id')
             : null;

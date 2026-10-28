@@ -477,4 +477,29 @@ final class TraceBatchTransformerTest extends TestCase
         self::assertSame($first['spans'][0]['id'], $second['spans'][0]['id']);
     }
 
+    public function test_query_only_transport_fragment_preserves_first_record(): void
+    {
+        $transformer = new TraceBatchTransformer('App', 'token', 'production', 'host');
+        $sourceId = str()->ulid()->toString();
+        $result = $transformer->transform([[
+            'type' => 'query',
+            'trace_id' => $sourceId,
+            'happened_at' => now()->toIso8601String(),
+            'payload' => [
+                'sql' => '[REDACTED_SQL]',
+                'normalized_signature' => 'select * from users where id = ?',
+                'time_ms' => 15,
+                'connection' => 'pgsql',
+            ],
+        ]]);
+
+        self::assertSame($sourceId, $result['traces'][0]['id']);
+        $queries = array_values(array_filter(
+            $result['traces'][0]['spans'],
+            static fn(array $span): bool => $span['kind'] === 'query',
+        ));
+        self::assertCount(1, $queries);
+        self::assertSame('select * from users where id = ?', $queries[0]['normalized_signature']);
+    }
+
 }
