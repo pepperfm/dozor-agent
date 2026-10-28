@@ -128,7 +128,14 @@ final class TraceBatchTransformer
         // Transport batches can contain only early query/HTTP records and no
         // terminal request root yet. Do not lose the first record of such a batch.
         if (in_array($rootType, ['query', 'cache', 'outgoing_http', 'exception'], true)) {
-            $firstSpan = $this->buildSpanFromRecord($rootRecord, 0, is_array($rootSpan) ? $rootSpan['id'] : null);
+            $firstPayload = is_array($rootPayload) ? $rootPayload : [];
+            $firstOffsetMs = $this->resolveOffsetMs(
+                is_string(Arr::get($rootRecord, 'happened_at')) ? Arr::get($rootRecord, 'happened_at') : null,
+                $startedAt,
+                $firstPayload,
+                is_numeric(Arr::get($rootRecord, 'timestamp')) ? (float) Arr::get($rootRecord, 'timestamp') : null,
+            );
+            $firstSpan = $this->buildSpanFromRecord($rootRecord, $firstOffsetMs, is_array($rootSpan) ? $rootSpan['id'] : null);
             if ($firstSpan !== null && count($spans) < $this->maxSpansPerTrace) {
                 $spans[] = $firstSpan;
             }
@@ -327,7 +334,9 @@ final class TraceBatchTransformer
     private function resolveStartedAt(array $rootRecord, array $records): string
     {
         $rootPayload = Arr::get($rootRecord, 'payload', []);
-        $requestStartedAt = is_array($rootPayload) ? Arr::get($rootPayload, 'request_started_at') : null;
+        $requestStartedAt = is_array($rootPayload)
+            ? Arr::get($rootPayload, 'request_started_at', Arr::get($rootPayload, 'trace_started_at'))
+            : null;
         if (is_string($requestStartedAt) && $requestStartedAt !== '') {
             return $requestStartedAt;
         }

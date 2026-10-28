@@ -12,7 +12,7 @@ return [
     'server' => env('DOZOR_SERVER', (string) gethostname()),
     'capture_request_payload' => env('DOZOR_CAPTURE_REQUEST_PAYLOAD', false),
     'capture_exception_source_code' => env('DOZOR_CAPTURE_EXCEPTION_SOURCE_CODE', false),
-    'redact_payload_fields' => explode(',', env('DOZOR_REDACT_PAYLOAD_FIELDS', '_token,password,password_confirmation')),
+    'redact_payload_fields' => explode(',', env('DOZOR_REDACT_PAYLOAD_FIELDS', '_token,password,password_confirmation,token,access_token,refresh_token,api_key,client_secret,secret,authorization,cookie,session,signature,private_key')),
     'redact_headers' => explode(',', env('DOZOR_REDACT_HEADERS', 'Authorization,Cookie,Proxy-Authorization,X-XSRF-TOKEN')),
 
     'sampling' => [

@@ -63,7 +63,7 @@ final readonly class ApplicationEventWatcher
             if (is_scalar($item)) {
                 $payload['items'][] = [
                     'type' => get_debug_type($item),
-                    'value' => mb_substr((string) $item, 0, 255),
+                    'redacted' => true,
                 ];
 
                 continue;

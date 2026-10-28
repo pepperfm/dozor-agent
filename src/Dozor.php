@@ -428,7 +428,7 @@ class Dozor implements DozorContract
                 'duration_ms' => round((microtime(true) - $startedAt) * 1000, 2),
                 'exception' => $event instanceof JobFailed && $event->exception ? [
                     'class' => $event->exception::class,
-                    'message' => $event->exception->getMessage(),
+                    'message' => $this->safeErrorMessage($event->exception->getMessage()),
                 ] : null,
             ]),
         ]);
@@ -462,7 +462,7 @@ class Dozor implements DozorContract
 
         $payload = [
             'class' => $e::class,
-            'message' => $e->getMessage(),
+            'message' => $this->safeErrorMessage($e->getMessage()),
             'file' => $e->getFile(),
             'line' => $e->getLine(),
             'context' => $this->sanitizePayload($context),
@@ -506,6 +506,12 @@ class Dozor implements DozorContract
             return;
         }
 
+        // Arbitrary auxiliary fields may contain tokens, bodies or signed URLs.
+        $payload = Arr::only($payload, [
+            'method', 'url', 'host', 'status_code', 'duration_ms', 'failed',
+            'error_class', 'error_message', 'request_headers', 'response_headers',
+        ]);
+
         if (is_array(Arr::get($payload, 'request_headers'))) {
             $payload['request_headers'] = $this->redactor->redactHeaders((array) Arr::get($payload, 'request_headers', []));
         }
@@ -518,14 +524,10 @@ class Dozor implements DozorContract
             $payload['url'] = $this->safeUrl((string) $payload['url']);
         }
 
-        // Connection exceptions may embed signed URLs in their message.
+        // Exceptions may contain signed URLs or credential assignments.
         $error = Arr::get($payload, 'error_message');
         if (is_string($error) && $error !== '') {
-            $payload['error_message'] = mb_substr(
-                preg_replace('~https?://[^\\s]+~i', '[URL REDACTED]', $error) ?? '[ERROR REDACTED]',
-                0,
-                500,
-            );
+            $payload['error_message'] = $this->safeErrorMessage($error);
         }
 
         $this->report([
@@ -766,14 +768,31 @@ class Dozor implements DozorContract
 
     private function safeUrl(string $url): string
     {
-        // Query strings and fragments can contain signed URLs and bearer credentials.
-        return explode('?', explode('#', $url, 2)[0], 2)[0];
+        // Query strings, fragments and URL user-info can contain credentials.
+        $url = explode('?', explode('#', $url, 2)[0], 2)[0];
+
+        return preg_replace('~^(https?://)[^/@]+@~i', '$1', $url) ?? $url;
+    }
+
+    private function safeErrorMessage(string $message): string
+    {
+        $message = preg_replace('~https?://[^\s<>"\x27]+~i', '[URL REDACTED]', $message) ?? '[ERROR REDACTED]';
+        $message = preg_replace(
+            '/\b(?:access_token|refresh_token|api_key|client_secret|password|secret|token|authorization)\s*[:=]\s*[^\s,;]+/i',
+            '[CREDENTIAL REDACTED]',
+            $message,
+        ) ?? '[ERROR REDACTED]';
+
+        return mb_substr($message, 0, 500);
     }
 
     private function normalizeSql(string $sql): string
     {
-        // Bindings are never recorded. Normalize literal values for safe grouping.
-        $sql = preg_replace("/'(?:''|[^'])*'/", '?', $sql) ?? $sql;
+        // SQL literals and comments may contain PII even without bindings.
+        $sql = preg_replace('/\$([A-Za-z_][A-Za-z_0-9]*)?\$[\s\S]*?\$\1\$/', '?', $sql) ?? $sql;
+        $sql = preg_replace('/\/\*[\s\S]*?\*\/|--[^\r\n]*/', ' ', $sql) ?? $sql;
+        $sql = preg_replace('/\x27(?:\x27\x27|[^\x27])*\x27/', '?', $sql) ?? $sql;
+        $sql = preg_replace('/"(?:\"\"|[^"])*"/', '"identifier"', $sql) ?? $sql;
         $sql = preg_replace('/\b\d+(?:\.\d+)?\b/', '?', $sql) ?? $sql;
 
         return trim(preg_replace('/\s+/', ' ', $sql) ?? $sql);
@@ -856,6 +875,8 @@ class Dozor implements DozorContract
             return $payload;
         }
 
+        // Keep the original trace epoch in every partial transport packet.
+        $payload['trace_started_at'] = \Illuminate\Support\Carbon::createFromTimestamp($trace->startedAt)->toIso8601String();
         $endOffsetUs = $trace->offsetUsAt();
         $resolvedDurationUs = $durationUs;
         if ($resolvedDurationUs === null && $durationMs !== null) {
