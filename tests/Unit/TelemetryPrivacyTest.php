@@ -81,7 +81,7 @@ final class TelemetryPrivacyTest extends TestCase
                     && !array_key_exists('value', $payload['items'][0]);
             }));
 
-        (new ApplicationEventWatcher($core, ['App\Events\']))->handle('App\Events\Demo', ['super-secret']);
+        (new ApplicationEventWatcher($core, ['App\\Events\\']))->handle('App\Events\Demo', ['super-secret']);
     }
 
     public function test_query_only_fragment_uses_original_trace_epoch_and_offset(): void
