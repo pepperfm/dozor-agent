@@ -120,13 +120,18 @@ final class TraceBatchTransformer
         $spans = [];
         $droppedSpans = 0;
 
-        $rootSpan = $this->buildRootSpan($rootRecord, $rootType, $startedAt);
+        // An early fragment of an active request/job is not a root event. Building
+        // a synthetic root here would use the same deterministic ID as the real
+        // HTTP/job root and overwrite it if this fragment arrives after completion.
+        $isChildFragment = in_array($rootType, ['query', 'cache', 'outgoing_http', 'exception'], true)
+            && is_string(Arr::get($rootPayload, 'trace_started_at'));
+        $rootSpan = $isChildFragment ? null : $this->buildRootSpan($rootRecord, $rootType, $startedAt);
         if ($rootSpan !== null) {
             $spans[] = $rootSpan;
         }
 
-        // Transport batches can contain only early query/HTTP records and no
-        // terminal request root yet. Do not lose the first record of such a batch.
+        // Preserve the first record even if the batch did not include a terminal
+        // request/job. It will attach to the canonical root at dashboard read time.
         if (in_array($rootType, ['query', 'cache', 'outgoing_http', 'exception'], true)) {
             $firstPayload = is_array($rootPayload) ? $rootPayload : [];
             $firstOffsetMs = $this->resolveOffsetMs(

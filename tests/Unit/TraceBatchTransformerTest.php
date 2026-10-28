@@ -477,6 +477,46 @@ final class TraceBatchTransformerTest extends TestCase
         self::assertSame($first['spans'][0]['id'], $second['spans'][0]['id']);
     }
 
+    public function test_late_query_fragment_cannot_overwrite_canonical_request_root(): void
+    {
+        $transformer = new TraceBatchTransformer('App', 'token', 'production', 'host');
+        $traceId = str()->ulid()->toString();
+        $startedAt = now()->toIso8601String();
+
+        $request = $transformer->transform([[
+            'type' => 'request',
+            'trace_id' => $traceId,
+            'happened_at' => $startedAt,
+            'payload' => [
+                'method' => 'GET',
+                'path' => '/orders',
+                'status' => 200,
+                'duration_ms' => 37,
+                'request_started_at' => $startedAt,
+            ],
+        ]])['traces'][0];
+
+        $fragment = $transformer->transform([[
+            'record_id' => str()->ulid()->toString(),
+            'type' => 'query',
+            'trace_id' => $traceId,
+            'happened_at' => $startedAt,
+            'payload' => [
+                'time_ms' => 3,
+                'trace_started_at' => $startedAt,
+                'normalized_signature' => 'select * from orders where id = ?',
+            ],
+        ]])['traces'][0];
+
+        self::assertSame($request['id'], $fragment['id']);
+        $rootId = $request['spans'][0]['id'];
+        self::assertSame('http', $request['spans'][0]['kind']);
+        self::assertNotContains($rootId, array_column($fragment['spans'], 'id'));
+        self::assertCount(1, $fragment['spans']);
+        self::assertSame('query', $fragment['spans'][0]['kind']);
+        self::assertNull($fragment['spans'][0]['parent_span_id']);
+    }
+
     public function test_query_only_transport_fragment_preserves_first_record(): void
     {
         $transformer = new TraceBatchTransformer('App', 'token', 'production', 'host');
