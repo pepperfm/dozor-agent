@@ -13,6 +13,37 @@ use Symfony\Component\HttpFoundation\Response;
 
 final class RequestFinalizationTest extends TestCase
 {
+    public function test_begin_request_does_not_resolve_routing_or_authentication_before_middleware(): void
+    {
+        $records = [];
+        $ingest = $this->createMock(IngestContract::class);
+        $ingest->method('write')->willReturnCallback(static function (array $record) use (&$records): void {
+            $records[] = $record;
+        });
+
+        $dozor = new Dozor($ingest, ['enabled' => true, 'app_name' => 'test']);
+        $request = Request::create('https://example.test/profile', 'GET');
+        $request->setRouteResolver(static function (): never {
+            throw new \RuntimeException('routing not yet available');
+        });
+        $request->setUserResolver(static function (): never {
+            throw new \RuntimeException('authentication not yet available');
+        });
+
+        $startedAt = microtime(true) - 0.01;
+        $trace = $dozor->beginRequest($request, $startedAt);
+
+        self::assertTrue($trace->requestMeta['sampled']);
+
+        $request->setRouteResolver(static fn() => (new Route('GET', 'profile', static fn() => 'ok'))->name('profile.show'));
+        $request->setUserResolver(static fn() => null);
+
+        $dozor->finishRequest($request, new Response('ok', 200), $startedAt);
+
+        self::assertCount(1, $records);
+        self::assertSame('profile.show', $records[0]['payload']['route_name']);
+    }
+
     public function test_route_and_authenticated_user_are_resolved_after_request_middleware(): void
     {
         $records = [];

@@ -106,7 +106,8 @@ class Dozor implements DozorContract
 
         try {
             $traceId = $this->makeTraceId();
-            $route = $request->route();
+            // Auth and routing may not exist yet during service-provider boot.
+            // Collect those only when the HTTP request is finalized.
             $this->currentRequestSuppressed = false;
             $this->currentRequestSuppressedReason = '';
             $this->samplingDropped = [];
@@ -126,12 +127,12 @@ class Dozor implements DozorContract
                 'method' => $request->method(),
                 'url' => $this->safeUrl($request->fullUrl()),
                 'path' => '/' . ltrim($request->path(), '/'),
-                'route_name' => $route?->getName(),
-                'route_uri' => $route?->uri(),
-                'controller' => $route?->getActionName(),
-                'middleware' => $route?->gatherMiddleware() ?? [],
+                'route_name' => null,
+                'route_uri' => null,
+                'controller' => null,
+                'middleware' => [],
                 'ip' => $request->ip(),
-                'user_id' => $request->user()?->getAuthIdentifier(),
+                'user_id' => null,
                 'user_agent' => $request->userAgent(),
                 'sampled' => !$this->currentRequestSuppressed,
                 'cache_capture_enabled' => (bool) $this->config('instrumentation.capture_cache', false),
