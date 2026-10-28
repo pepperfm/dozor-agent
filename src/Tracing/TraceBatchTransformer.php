@@ -550,6 +550,10 @@ final class TraceBatchTransformer
                 'status_code' => null,
                 'metadata' => [
                     'message' => Arr::get($payload, 'message'),
+                    'file' => Arr::get($payload, 'file'),
+                    'line' => Arr::get($payload, 'line'),
+                    'stacktrace' => array_slice(is_array(Arr::get($payload, 'stacktrace'))
+                        ? Arr::get($payload, 'stacktrace') : [], 0, 15),
                 ],
             ],
             'event' => [

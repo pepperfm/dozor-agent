@@ -486,7 +486,7 @@ class Dozor implements DozorContract
         $payload = [
             'class' => $e::class,
             'message' => $this->safeErrorMessage($e->getMessage()),
-            'file' => $e->getFile(),
+            'file' => $this->safeSourcePath($e->getFile()),
             'line' => $e->getLine(),
             'context' => $this->sanitizePayload($context),
         ];
@@ -867,6 +867,17 @@ class Dozor implements DozorContract
         }
 
         return $frames;
+    }
+
+    private function safeSourcePath(string $file): string
+    {
+        $path = str_replace('\\', '/', $file);
+        $root = function_exists('base_path') ? str_replace('\\', '/', (string) base_path()) : '';
+        if ($root !== '' && str_starts_with($path, rtrim($root, '/') . '/')) {
+            return substr($path, strlen(rtrim($root, '/')) + 1);
+        }
+
+        return basename($path);
     }
 
     private function sourceSnippet(string $file, int $line): ?array
