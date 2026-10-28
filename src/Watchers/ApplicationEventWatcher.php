@@ -54,7 +54,7 @@ final readonly class ApplicationEventWatcher
             if (is_array($item)) {
                 $payload['items'][] = [
                     'type' => 'array',
-                    'keys' => array_slice(array_keys($item), 0, 12),
+                    'entries_count' => count($item),
                 ];
 
                 continue;
