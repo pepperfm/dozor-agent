@@ -109,4 +109,33 @@ final class TelemetryPrivacyTest extends TestCase
         self::assertCount(1, $query);
         self::assertSame(1750, $query[0]['start_offset_ms']);
     }
+
+    public function test_exception_frames_survive_transformation_without_absolute_source_paths(): void
+    {
+        $records = [];
+        $ingest = $this->createMock(IngestContract::class);
+        $ingest->method('writeNow')->willReturnCallback(static function (array $record) use (&$records): void {
+            $records[] = $record;
+        });
+        $core = new Dozor($ingest, ['enabled' => true, 'sampling' => ['exceptions' => 1.0]]);
+
+        try {
+            throw new RuntimeException('private https://service.test?token=secret');
+        } catch (RuntimeException $exception) {
+            $core->recordException($exception);
+        }
+
+        self::assertCount(1, $records);
+        self::assertStringNotContainsString('/', $records[0]['payload']['file']);
+        $trace = (new TraceBatchTransformer('App', 'token', 'production', 'host'))
+            ->transform($records)['traces'][0];
+        $exceptions = array_values(array_filter(
+            $trace['spans'],
+            static fn(array $span): bool => $span['kind'] === 'exception',
+        ));
+        self::assertCount(1, $exceptions);
+        self::assertArrayHasKey('stacktrace', $exceptions[0]['metadata']);
+        self::assertLessThanOrEqual(15, count($exceptions[0]['metadata']['stacktrace']));
+    }
+
 }
