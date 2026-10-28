@@ -39,6 +39,9 @@ final class StatusCommand extends Command
         $statePath = (string) Arr::get($config, 'agent.telemetry.state_path', storage_path('app/dozor/runtime-state.json'));
         $shipperEnabled = (bool) Arr::get($config, 'agent.shipper.enabled', true);
         $ingestUri = (string) Arr::get($config, 'ingest.uri', '127.0.0.1:4815');
+        $hostedIngestUrl = trim((string) Arr::get($config, 'agent.shipper.ingest_url', ''));
+        $hostedIngestToken = trim((string) Arr::get($config, 'agent.shipper.ingest_token', Arr::get($config, 'token', '')));
+        $shipperConfigured = !$shipperEnabled || ($hostedIngestUrl !== '' && $hostedIngestToken !== '');
 
         $spoolQueue = new SpoolQueue($spoolPath);
         $runtimeState = (new AgentRuntimeState($statePath))->read();
@@ -58,6 +61,8 @@ final class StatusCommand extends Command
             'reachable' => $reachable,
             'ingest_uri' => $ingestUri,
             'shipper_enabled' => $shipperEnabled,
+            'shipper_configured' => $shipperConfigured,
+            'shipping_warning' => $shipperConfigured ? null : 'Missing DOZOR_HOSTED_INGEST_URL or DOZOR_TOKEN',
             'spool_path' => $spoolPath,
             'state_path' => $statePath,
             'lifecycle' => [
@@ -98,19 +103,26 @@ final class StatusCommand extends Command
             $this->table(['Metric', 'Value'], $rows);
         }
 
+        // --json must remain machine-readable; --strict also verifies actual remote shipping.
+        if ((bool) $this->option('json')) {
+            return (bool) $this->option('strict') && (!$reachable || !$shipperConfigured)
+                ? self::FAILURE
+                : self::SUCCESS;
+        }
+
+        if (!$shipperConfigured) {
+            $this->components->warn('Remote shipping is not configured. Set DOZOR_HOSTED_INGEST_URL and DOZOR_TOKEN.');
+        }
+
         if ($reachable) {
             $this->components->info('Dozor agent is reachable.');
-
-            return self::SUCCESS;
+        } else {
+            $this->components->warn('Dozor agent is not reachable from current app process.');
         }
 
-        $this->components->warn('Dozor agent is not reachable from current app process.');
-
-        if ((bool) $this->option('strict')) {
-            return self::FAILURE;
-        }
-
-        return self::SUCCESS;
+        return (bool) $this->option('strict') && (!$reachable || !$shipperConfigured)
+            ? self::FAILURE
+            : self::SUCCESS;
     }
 
     /**
@@ -125,6 +137,8 @@ final class StatusCommand extends Command
             'reachable' => Arr::get($statusReport, 'reachable'),
             'ingest_uri' => Arr::get($statusReport, 'ingest_uri'),
             'shipper_enabled' => Arr::get($statusReport, 'shipper_enabled'),
+            'shipper_configured' => Arr::get($statusReport, 'shipper_configured'),
+            'shipping_warning' => Arr::get($statusReport, 'shipping_warning'),
             'spool_path' => Arr::get($statusReport, 'spool_path'),
             'state_path' => Arr::get($statusReport, 'state_path'),
             'lifecycle.status' => Arr::get($statusReport, 'lifecycle.status'),

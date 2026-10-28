@@ -93,7 +93,13 @@ final class AgentCommand extends Command
         $shipper = null;
         $traceBatchTransformer = null;
 
-        if ($shipperEnabled && $hostedIngestUrl !== '') {
+        if ($shipperEnabled && ($hostedIngestUrl === '' || $hostedIngestToken === '')) {
+            if (!$silent) {
+                $this->components->warn('Remote shipping is not configured. Set DOZOR_HOSTED_INGEST_URL and DOZOR_TOKEN; records will stay local.');
+            }
+        }
+
+        if ($shipperEnabled && $hostedIngestUrl !== '' && $hostedIngestToken !== '') {
             $spoolQueue = new SpoolQueue(
                 spoolPath: $spoolPath,
                 maxAttemptsPerBatch: $shipMaxAttempts,

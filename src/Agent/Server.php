@@ -179,7 +179,7 @@ final class Server
         if ($version !== 'v1') {
             throw new \RuntimeException("Unsupported payload version [$version]");
         }
-        if ($this->tokenHash !== '' && $tokenHash !== $this->tokenHash) {
+        if ($this->tokenHash !== '' && !hash_equals($this->tokenHash, $tokenHash)) {
             throw new \RuntimeException('Invalid token hash for ingest request');
         }
         if ($payload === 'PING') {
@@ -232,6 +232,10 @@ final class Server
             }
             if ($chunk === ':') {
                 break;
+            }
+
+            if (strlen($buffer) >= 8) {
+                throw new \RuntimeException('Frame length header is too long');
             }
 
             $buffer .= $chunk;

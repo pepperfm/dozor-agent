@@ -210,9 +210,12 @@ class DozorServiceProvider extends ServiceProvider
         Event::listen(JobProcessing::class, [$this->app->make(QueueWatcher::class), 'started']);
         Event::listen(JobProcessed::class, [$this->app->make(QueueWatcher::class), 'finished']);
         Event::listen(JobFailed::class, [$this->app->make(QueueWatcher::class), 'finished']);
-        Event::listen(CacheHit::class, [$this->app->make(CacheWatcher::class), 'hit']);
-        Event::listen(CacheMissed::class, [$this->app->make(CacheWatcher::class), 'missed']);
-        Event::listen(KeyWritten::class, [$this->app->make(CacheWatcher::class), 'written']);
+        // Cache events are too noisy for a small personal installation.
+        if ((bool) config('dozor.instrumentation.capture_cache', false)) {
+            Event::listen(CacheHit::class, [$this->app->make(CacheWatcher::class), 'hit']);
+            Event::listen(CacheMissed::class, [$this->app->make(CacheWatcher::class), 'missed']);
+            Event::listen(KeyWritten::class, [$this->app->make(CacheWatcher::class), 'written']);
+        }
 
         if ($outgoingHttpEnabled) {
             Event::listen(RequestSending::class, [$this->app->make(HttpWatcher::class), 'requestSending']);
