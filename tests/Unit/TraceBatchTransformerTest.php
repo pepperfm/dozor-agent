@@ -517,6 +517,32 @@ final class TraceBatchTransformerTest extends TestCase
         self::assertNull($fragment['spans'][0]['parent_span_id']);
     }
 
+    public function test_late_framework_event_does_not_overwrite_http_root(): void
+    {
+        $transformer = new TraceBatchTransformer('App', 'token', 'production', 'host');
+        $traceId = str()->ulid()->toString();
+        $startedAt = now()->toIso8601String();
+        $request = $transformer->transform([[
+            'type' => 'request',
+            'trace_id' => $traceId,
+            'happened_at' => $startedAt,
+            'payload' => ['method' => 'GET', 'path' => '/', 'status' => 200, 'duration_ms' => 20],
+        ]])['traces'][0];
+        $fragment = $transformer->transform([[
+            'type' => 'event',
+            'record_id' => str()->ulid()->toString(),
+            'trace_id' => $traceId,
+            'happened_at' => $startedAt,
+            'payload' => ['trace_started_at' => $startedAt, 'name' => 'mail.sent', 'duration_ms' => 3],
+        ]])['traces'][0];
+
+        self::assertSame($request['id'], $fragment['id']);
+        self::assertNotContains($request['spans'][0]['id'], array_column($fragment['spans'], 'id'));
+        self::assertCount(1, $fragment['spans']);
+        self::assertSame('event', $fragment['spans'][0]['kind']);
+        self::assertSame(3, $fragment['spans'][0]['duration_ms']);
+    }
+
     public function test_query_only_transport_fragment_preserves_first_record(): void
     {
         $transformer = new TraceBatchTransformer('App', 'token', 'production', 'host');
