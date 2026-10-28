@@ -11,7 +11,6 @@ use function get_debug_type;
 use function is_array;
 use function is_object;
 use function is_scalar;
-use function mb_substr;
 use function str_starts_with;
 
 final readonly class ApplicationEventWatcher
