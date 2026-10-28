@@ -44,6 +44,7 @@ final class Ingest implements IngestContract
 
     public function write(array $record): void
     {
+        $record = $this->withTransportDropCount($record);
         $this->buffer->write($record);
 
         if ($this->shouldDigestWhenBufferIsFull && $this->buffer->full) {
@@ -53,6 +54,7 @@ final class Ingest implements IngestContract
 
     public function writeNow(array $record): void
     {
+        $record = $this->withTransportDropCount($record);
         if ($this->transmit(Payload::json([$record], $this->tokenHash))) {
             return;
         }
@@ -95,6 +97,18 @@ final class Ingest implements IngestContract
         if ($this->transmit(Payload::json($records, $this->tokenHash))) {
             $this->buffer->flush();
         }
+    }
+
+    /** @param array<string, mixed> $record */
+    private function withTransportDropCount(array $record): array
+    {
+        $dropped = $this->buffer->droppedRecords();
+        if ($dropped > 0 && ($record['type'] ?? null) === 'request'
+            && is_array($record['payload'] ?? null)) {
+            $record['payload']['transport_dropped_records'] = $dropped;
+        }
+
+        return $record;
     }
 
     private function transmit(Payload $payload, bool $strict = false): bool

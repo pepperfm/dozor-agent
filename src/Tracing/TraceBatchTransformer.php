@@ -282,6 +282,7 @@ final class TraceBatchTransformer
                 'suspected_n_plus_one_groups' => $suspectedNPlusOneGroups,
                 'records_count' => count($records),
                 'dropped_spans' => $droppedSpans,
+                'transport_dropped_records' => (int) Arr::get($rootPayload, 'transport_dropped_records', 0),
                 'span_limit' => $this->maxSpansPerTrace,
                 'sampling_dropped' => Arr::get($rootPayload, 'sampling_dropped', []),
                 'cache_capture_enabled' => (bool) Arr::get($rootPayload, 'cache_capture_enabled', false),

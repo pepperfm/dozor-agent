@@ -19,6 +19,7 @@ final class RecordsBufferTest extends TestCase
 
         self::assertTrue($buffer->full);
         self::assertSame(2, $buffer->count());
+        self::assertSame(1, $buffer->droppedRecords());
 
         $payload = $buffer->pull('token-hash');
         $records = json_decode($payload->rawPayload(), true, 512, JSON_THROW_ON_ERROR);
@@ -30,5 +31,6 @@ final class RecordsBufferTest extends TestCase
 
         self::assertFalse($buffer->full);
         self::assertSame(0, $buffer->count());
+        self::assertSame(0, $buffer->droppedRecords());
     }
 }

@@ -18,6 +18,8 @@ final class RecordsBuffer implements Countable
 
     public bool $full = false;
 
+    private int $droppedRecords = 0;
+
     public function __construct(private readonly int $length)
     {
     }
@@ -29,11 +31,17 @@ final class RecordsBuffer implements Countable
     {
         if ($this->full) {
             array_shift($this->records);
+            $this->droppedRecords++;
         }
 
         $this->records[] = $record;
 
         $this->full = $this->count() >= $this->length;
+    }
+
+    public function droppedRecords(): int
+    {
+        return $this->droppedRecords;
     }
 
     public function count(): int
@@ -66,5 +74,6 @@ final class RecordsBuffer implements Countable
     {
         $this->records = [];
         $this->full = false;
+        $this->droppedRecords = 0;
     }
 }
