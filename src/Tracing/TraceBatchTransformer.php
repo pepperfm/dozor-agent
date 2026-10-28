@@ -155,9 +155,9 @@ final class TraceBatchTransformer
             'phase_ranges' => $phaseRanges,
         ] = $this->buildLifecyclePhaseSpans($rootPayload, $durationMs, $rootSpanId, $rootType);
 
-        foreach ($lifecycleSpans as $lifecycleSpan) {
+        foreach ($lifecycleSpans as $index => $lifecycleSpan) {
             if (count($spans) >= $this->maxSpansPerTrace) {
-                $droppedSpans++;
+                $droppedSpans += count($lifecycleSpans) - $index;
 
                 break;
             }
@@ -281,6 +281,11 @@ final class TraceBatchTransformer
                 'repeated_query_groups' => $repeatedQueryGroups,
                 'suspected_n_plus_one_groups' => $suspectedNPlusOneGroups,
                 'records_count' => count($records),
+                'dropped_spans' => $droppedSpans,
+                'span_limit' => $this->maxSpansPerTrace,
+                'sampling_dropped' => Arr::get($rootPayload, 'sampling_dropped', []),
+                'cache_capture_enabled' => (bool) Arr::get($rootPayload, 'cache_capture_enabled', false),
+                'cache_sample_rate' => (float) Arr::get($rootPayload, 'cache_sample_rate', 1.0),
                 'middleware' => $middleware,
                 'route_name' => Arr::get($rootPayload, 'route_name'),
                 'request_headers' => $requestHeaders,
@@ -512,7 +517,8 @@ final class TraceBatchTransformer
                 'kind' => 'cache',
                 'name' => 'Cache ' . $this->formatDisplayLabel((string) Arr::get($payload, 'operation', 'unknown')),
                 'start_offset_ms' => $offsetMs,
-                'duration_ms' => max(1, (int) round($this->resolveNumeric($payload, ['duration_ms'], 1))),
+                // Cache events mark an instant; they do not measure operation latency.
+                'duration_ms' => 0,
                 'connection' => null,
                 'normalized_signature' => null,
                 'sql_text' => null,
