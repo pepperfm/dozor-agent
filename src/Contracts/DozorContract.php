@@ -75,6 +75,10 @@ interface DozorContract
      */
     public function recordApplicationEvent(string $eventName, array $payload = []): void;
 
+    public function startFrameworkCommand(string $command): void;
+
+    public function finishFrameworkCommand(string $command): void;
+
     /**
      * @param array<string, mixed> $metadata
      */

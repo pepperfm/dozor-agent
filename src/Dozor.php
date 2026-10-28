@@ -45,6 +45,12 @@ class Dozor implements DozorContract
 
     private ?TraceContext $jobTrace = null;
 
+    private ?string $activeCommandTraceId = null;
+
+    private ?string $trackedCommandName = null;
+
+    private ?TraceContext $commandTrace = null;
+
     private bool $capturingLogs = false;
 
     private bool $currentRequestSuppressed = false;
@@ -284,7 +290,7 @@ class Dozor implements DozorContract
             $this->endLifecycleStage(RequestLifecycleStage::End->value);
             $this->currentTrace?->closeOpenLifecycleStages();
 
-            $traceId = $this->currentTrace?->traceId ?? $this->activeJobTraceId ?? $this->makeTraceId();
+            $traceId = $this->currentTrace?->traceId ?? $this->activeJobTraceId ?? $this->activeCommandTraceId ?? $this->makeTraceId();
             $durationMs = round((microtime(true) - $startedAt) * 1000, 2);
             $status = method_exists($response, 'getStatusCode') ? $response->getStatusCode() : ($e ? 500 : 200);
 
@@ -342,7 +348,7 @@ class Dozor implements DozorContract
             return;
         }
 
-        $traceId = $this->currentTrace?->traceId ?? $this->activeJobTraceId ?? $this->makeTraceId();
+        $traceId = $this->currentTrace?->traceId ?? $this->activeJobTraceId ?? $this->activeCommandTraceId ?? $this->makeTraceId();
         $samplingKey = $traceId . '|' . $event->connectionName . '|' . $event->sql;
 
         if (!$this->sampler->shouldSample('queries', $samplingKey)) {
@@ -390,7 +396,7 @@ class Dozor implements DozorContract
             return;
         }
 
-        $traceId = $this->currentTrace?->traceId ?? $this->activeJobTraceId ?? $this->makeTraceId();
+        $traceId = $this->currentTrace?->traceId ?? $this->activeJobTraceId ?? $this->activeCommandTraceId ?? $this->makeTraceId();
         $samplingKey = $traceId . '|' . $event->connectionName . '|' . $event->job->resolveName();
 
         if (!$this->sampler->shouldSample('jobs', $samplingKey)) {
@@ -447,7 +453,7 @@ class Dozor implements DozorContract
             return;
         }
 
-        $trace = $this->currentTrace?->traceId ?? $this->activeJobTraceId ?? $this->makeTraceId();
+        $trace = $this->currentTrace?->traceId ?? $this->activeJobTraceId ?? $this->activeCommandTraceId ?? $this->makeTraceId();
         $samplingKey = $trace . '|' . $e::class . '|' . $e->getFile() . ':' . $e->getLine();
 
         if (!$this->sampler->shouldSample('exceptions', $samplingKey)) {
@@ -480,7 +486,7 @@ class Dozor implements DozorContract
             'environment' => $this->config('environment'),
             'server' => $this->config('server'),
             'payload' => $payload,
-        ], immediate: $this->currentTrace === null && $this->activeJobTraceId === null);
+        ], immediate: $this->currentTrace === null && $this->activeJobTraceId === null && $this->activeCommandTraceId === null);
     }
 
     public function recordOutgoingHttp(array $payload): void
@@ -493,7 +499,7 @@ class Dozor implements DozorContract
             return;
         }
 
-        $traceId = $this->currentTrace?->traceId ?? $this->activeJobTraceId ?? $this->makeTraceId();
+        $traceId = $this->currentTrace?->traceId ?? $this->activeJobTraceId ?? $this->activeCommandTraceId ?? $this->makeTraceId();
         $samplingKey = $traceId . '|' . Arr::get($payload, 'method') . '|' . Arr::get($payload, 'url');
 
         if (!$this->sampler->shouldSample('outgoing_http', $samplingKey)) {
@@ -532,7 +538,7 @@ class Dozor implements DozorContract
             return;
         }
 
-        $traceId = $this->currentTrace?->traceId ?? $this->activeJobTraceId ?? $this->makeTraceId();
+        $traceId = $this->currentTrace?->traceId ?? $this->activeJobTraceId ?? $this->activeCommandTraceId ?? $this->makeTraceId();
         $operation = Arr::get($payload, 'operation');
         $operation = is_string($operation) && $operation !== '' ? $operation : 'unknown';
         $cacheKey = Arr::get($payload, 'key');
@@ -568,7 +574,7 @@ class Dozor implements DozorContract
             return;
         }
 
-        $traceId = $this->currentTrace?->traceId ?? $this->activeJobTraceId ?? $this->makeTraceId();
+        $traceId = $this->currentTrace?->traceId ?? $this->activeJobTraceId ?? $this->activeCommandTraceId ?? $this->makeTraceId();
         $samplingKey = $traceId . '|' . $level . '|' . $message;
 
         if (!$this->sampler->shouldSample('logs', $samplingKey)) {
@@ -596,6 +602,29 @@ class Dozor implements DozorContract
         }
     }
 
+    public function startFrameworkCommand(string $command): void
+    {
+        if (!$this->enabled() || $this->activeCommandTraceId !== null
+            || $this->currentTrace !== null || $this->activeJobTraceId !== null) {
+            return;
+        }
+
+        $this->activeCommandTraceId = $this->makeTraceId();
+        $this->trackedCommandName = $command;
+        $this->commandTrace = new TraceContext($this->activeCommandTraceId, microtime(true));
+    }
+
+    public function finishFrameworkCommand(string $command): void
+    {
+        if ($this->trackedCommandName !== $command) {
+            return;
+        }
+
+        $this->activeCommandTraceId = null;
+        $this->trackedCommandName = null;
+        $this->commandTrace = null;
+    }
+
     public function recordFrameworkEvent(string $name, array $metadata = []): void
     {
         if (!$this->enabled() || !(bool) $this->config('instrumentation.capture_framework_events', true)) {
@@ -604,17 +633,21 @@ class Dozor implements DozorContract
 
         $type = str_starts_with($name, 'artisan.') ? 'command' : 'event';
         $duration = Arr::get($metadata, 'duration_ms');
+        if ($type === 'command' && $this->commandTrace !== null) {
+            $metadata['request_started_at'] = \Illuminate\Support\Carbon::createFromTimestamp($this->commandTrace->startedAt)->toIso8601String();
+        }
         $status = Arr::get($metadata, 'failed', false) ? 500 : 200;
 
         $this->report([
             'type' => $type,
-            'trace_id' => $this->currentTrace?->traceId ?? $this->activeJobTraceId ?? $this->makeTraceId(),
+            'trace_id' => $this->currentTrace?->traceId ?? $this->activeJobTraceId ?? $this->activeCommandTraceId ?? $this->makeTraceId(),
             'happened_at' => $this->isoTime(),
             'app' => $this->config('app_name'),
             'environment' => $this->config('environment'),
             'server' => $this->config('server'),
             'payload' => $this->attachSpanOffsets([
                 'name' => $name,
+                'request_started_at' => Arr::get($metadata, 'request_started_at'),
                 'status' => $status,
                 'duration_ms' => is_numeric($duration) ? round((float) $duration, 2) : null,
                 'details' => $this->sanitizePayload($metadata),
@@ -632,7 +665,7 @@ class Dozor implements DozorContract
             return;
         }
 
-        $traceId = $this->currentTrace?->traceId ?? $this->activeJobTraceId ?? $this->makeTraceId();
+        $traceId = $this->currentTrace?->traceId ?? $this->activeJobTraceId ?? $this->activeCommandTraceId ?? $this->makeTraceId();
         $samplingKey = $traceId . '|' . $eventName;
 
         if (!$this->sampler->shouldSample('events', $samplingKey)) {
@@ -808,7 +841,7 @@ class Dozor implements DozorContract
      */
     private function attachSpanOffsets(array $payload, ?int $durationMs = null, ?int $durationUs = null): array
     {
-        $trace = $this->currentTrace ?? $this->jobTrace;
+        $trace = $this->currentTrace ?? $this->jobTrace ?? $this->commandTrace;
         if ($trace === null) {
             return $payload;
         }

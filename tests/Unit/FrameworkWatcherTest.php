@@ -15,6 +15,8 @@ final class FrameworkWatcherTest extends TestCase
     public function test_it_records_command_outcome_without_arguments(): void
     {
         $core = $this->createMock(DozorContract::class);
+        $core->expects(self::once())->method('startFrameworkCommand')->with('cache:clear');
+        $core->expects(self::once())->method('finishFrameworkCommand')->with('cache:clear');
         $core->expects(self::once())->method('recordFrameworkEvent')
             ->with(
                 'artisan.cache:clear',

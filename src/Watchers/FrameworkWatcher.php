@@ -35,6 +35,10 @@ final class FrameworkWatcher
         }
 
         $this->commandStartedAt[$name] = microtime(true);
+        try {
+            $this->core->startFrameworkCommand($name);
+        } catch (Throwable) {
+        }
     }
 
     public function commandFinished(CommandFinished $event): void
@@ -47,12 +51,19 @@ final class FrameworkWatcher
         $start = $this->commandStartedAt[$name] ?? null;
         unset($this->commandStartedAt[$name]);
 
-        $this->record('artisan.' . $name, [
-            'command' => $name,
-            'exit_code' => (int) $event->exitCode,
-            'failed' => (int) $event->exitCode !== 0,
-            'duration_ms' => is_float($start) ? round((microtime(true) - $start) * 1000, 2) : null,
-        ]);
+        try {
+            $this->record('artisan.' . $name, [
+                'command' => $name,
+                'exit_code' => (int) $event->exitCode,
+                'failed' => (int) $event->exitCode !== 0,
+                'duration_ms' => is_float($start) ? round((microtime(true) - $start) * 1000, 2) : null,
+            ]);
+        } finally {
+            try {
+                $this->core->finishFrameworkCommand($name);
+            } catch (Throwable) {
+            }
+        }
     }
 
     public function scheduledFinished(ScheduledTaskFinished $event): void
