@@ -288,6 +288,21 @@ final class TraceBatchTransformer
      * @return array<string, mixed>
      */
 
+    /**
+     * Record IDs are assigned once in the PHP process and reused on retry.
+     * Legacy records without IDs retain their previous behavior.
+     *
+     * @param array<string, mixed> $record
+     */
+    private function recordSpanId(array $record): string
+    {
+        $id = Arr::get($record, 'record_id');
+
+        return is_string($id) && \Illuminate\Support\Str::isUlid($id)
+            ? $id
+            : str()->ulid()->toString();
+    }
+
     private function stableSpanId(string $sourceTraceId, string $component): string
     {
         return '0' . strtoupper(substr(hash('sha256', $this->appName . '|' . $this->environment . '|' . $sourceTraceId . '|' . $component), 0, 25));
@@ -404,7 +419,7 @@ final class TraceBatchTransformer
 
         return match ($type) {
             'outgoing_http' => [
-                'id' => str()->ulid()->toString(),
+                'id' => $this->recordSpanId($record),
                 'parent_span_id' => $parentSpanId,
                 'kind' => 'outgoing_http',
                 'name' => (string) Arr::get($payload, 'url', 'outgoing_http'),
@@ -439,7 +454,7 @@ final class TraceBatchTransformer
                 })(),
             ],
             'query' => [
-                'id' => str()->ulid()->toString(),
+                'id' => $this->recordSpanId($record),
                 'parent_span_id' => $parentSpanId,
                 'kind' => 'query',
                 'name' => $this->querySpanName($payload),
@@ -459,7 +474,7 @@ final class TraceBatchTransformer
                 ],
             ],
             'job' => [
-                'id' => str()->ulid()->toString(),
+                'id' => $this->recordSpanId($record),
                 'parent_span_id' => $parentSpanId,
                 'kind' => 'job',
                 'name' => (string) Arr::get($payload, 'name', 'job'),
@@ -478,7 +493,7 @@ final class TraceBatchTransformer
                 ],
             ],
             'cache' => [
-                'id' => str()->ulid()->toString(),
+                'id' => $this->recordSpanId($record),
                 'parent_span_id' => $parentSpanId,
                 'kind' => 'cache',
                 'name' => 'Cache ' . $this->formatDisplayLabel((string) Arr::get($payload, 'operation', 'unknown')),
@@ -499,7 +514,7 @@ final class TraceBatchTransformer
                 ],
             ],
             'exception' => [
-                'id' => str()->ulid()->toString(),
+                'id' => $this->recordSpanId($record),
                 'parent_span_id' => $parentSpanId,
                 'kind' => 'exception',
                 'name' => (string) Arr::get($payload, 'class', 'exception'),
@@ -518,7 +533,7 @@ final class TraceBatchTransformer
                 ],
             ],
             'event' => [
-                'id' => str()->ulid()->toString(),
+                'id' => $this->recordSpanId($record),
                 'parent_span_id' => $parentSpanId,
                 'kind' => 'event',
                 'name' => (string) Arr::get($payload, 'name', Arr::get($payload, 'event_name', 'event')),
@@ -535,7 +550,7 @@ final class TraceBatchTransformer
                 'metadata' => $payload,
             ],
             'heartbeat' => [
-                'id' => str()->ulid()->toString(),
+                'id' => $this->recordSpanId($record),
                 'parent_span_id' => $parentSpanId,
                 'kind' => 'heartbeat',
                 'name' => 'agent.heartbeat',
@@ -552,7 +567,7 @@ final class TraceBatchTransformer
                 'metadata' => $payload,
             ],
             default => [
-                'id' => str()->ulid()->toString(),
+                'id' => $this->recordSpanId($record),
                 'parent_span_id' => $parentSpanId,
                 'kind' => 'log',
                 'name' => (string) Arr::get($record, 'type', 'custom'),
@@ -594,7 +609,7 @@ final class TraceBatchTransformer
         $phaseSpanIds = [];
         $phaseRanges = [];
 
-        foreach ($stages as $stage) {
+        foreach ($stages as $index => $stage) {
             $stageName = Arr::get($stage, 'name');
             if (!is_string($stageName) || $stageName === '') {
                 continue;
@@ -604,7 +619,7 @@ final class TraceBatchTransformer
             $stageDurationMs = max(1, (int) Arr::get($stage, 'duration_ms', 1));
             $metadata = Arr::get($stage, 'metadata', []);
 
-            $phaseSpanId = str()->ulid()->toString();
+            $phaseSpanId = $this->stableSpanId((string) $rootSpanId, 'phase:' . $index);
 
             $spans[] = [
                 'id' => $phaseSpanId,

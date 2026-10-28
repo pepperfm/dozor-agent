@@ -656,6 +656,7 @@ class Dozor implements DozorContract
                 return;
             }
 
+            $record['record_id'] ??= $this->makeTraceId();
             $record['deployment'] ??= $this->config('deployment');
             $record['release'] ??= $this->config('release', $this->config('deployment'));
             $record['timestamp'] ??= microtime(true);

@@ -502,4 +502,40 @@ final class TraceBatchTransformerTest extends TestCase
         self::assertSame('select * from users where id = ?', $queries[0]['normalized_signature']);
     }
 
+    public function test_record_ids_make_retries_idempotent(): void
+    {
+        $transformer = new TraceBatchTransformer('App', 'token', 'production', 'host');
+        $traceId = str()->ulid()->toString();
+        $recordId = str()->ulid()->toString();
+        $records = [
+            [
+                'type' => 'request',
+                'trace_id' => $traceId,
+                'happened_at' => now()->toIso8601String(),
+                'payload' => [
+                    'method' => 'GET',
+                    'path' => '/orders',
+                    'duration_ms' => 50,
+                    'lifecycle_stages' => [['name' => 'action', 'start_offset_ms' => 1, 'duration_ms' => 40]],
+                ],
+            ],
+            [
+                'record_id' => $recordId,
+                'type' => 'query',
+                'trace_id' => $traceId,
+                'happened_at' => now()->toIso8601String(),
+                'payload' => [
+                    'time_ms' => 7,
+                    'sql' => '[REDACTED_SQL]',
+                    'normalized_signature' => 'select * from orders where id = ?',
+                ],
+            ],
+        ];
+        $a = $transformer->transform($records)['traces'][0]['spans'];
+        $b = $transformer->transform($records)['traces'][0]['spans'];
+
+        self::assertSame(array_column($a, 'id'), array_column($b, 'id'));
+        self::assertContains($recordId, array_column($a, 'id'));
+    }
+
 }
