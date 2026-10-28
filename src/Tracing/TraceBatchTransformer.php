@@ -559,8 +559,10 @@ final class TraceBatchTransformer
             'event' => [
                 'id' => $this->recordSpanId($record),
                 'parent_span_id' => $parentSpanId,
-                'kind' => 'event',
-                'name' => (string) Arr::get($payload, 'name', Arr::get($payload, 'event_name', 'event')),
+                'kind' => Arr::get($payload, 'name') === 'view.rendered' ? 'view' : 'event',
+                'name' => Arr::get($payload, 'name') === 'view.rendered'
+                    ? 'View ' . (string) Arr::get($payload, 'details.view', 'template')
+                    : (string) Arr::get($payload, 'name', Arr::get($payload, 'event_name', 'event')),
                 'start_offset_ms' => $offsetMs,
                 'duration_ms' => $this->resolveRecordDurationMs('event', $payload),
                 'connection' => null,

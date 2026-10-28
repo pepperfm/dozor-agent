@@ -668,7 +668,15 @@ class Dozor implements DozorContract
 
     public function recordFrameworkEvent(string $name, array $metadata = []): void
     {
-        if (!$this->enabled() || !(bool) $this->config('instrumentation.capture_framework_events', true)) {
+        if (!$this->enabled()) {
+            return;
+        }
+
+        $capturing = str_starts_with($name, 'view.')
+            ? (bool) $this->config('instrumentation.capture_views', false)
+            : (bool) $this->config('instrumentation.capture_framework_events', true);
+
+        if (!$capturing) {
             return;
         }
 

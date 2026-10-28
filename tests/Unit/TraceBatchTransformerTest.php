@@ -517,6 +517,32 @@ final class TraceBatchTransformerTest extends TestCase
         self::assertNull($fragment['spans'][0]['parent_span_id']);
     }
 
+    public function test_measured_blade_event_is_rendered_as_view_span(): void
+    {
+        $transformer = new TraceBatchTransformer('App', 'token', 'production', 'host');
+        $traceId = str()->ulid()->toString();
+        $epoch = now()->toIso8601String();
+        $batch = $transformer->transform([
+            [
+                'type' => 'event',
+                'trace_id' => $traceId,
+                'record_id' => str()->ulid()->toString(),
+                'happened_at' => $epoch,
+                'payload' => [
+                    'name' => 'view.rendered',
+                    'duration_ms' => 12,
+                    'trace_started_at' => $epoch,
+                    'details' => ['view' => 'dashboard.blade.php'],
+                ],
+            ],
+        ])['traces'][0];
+
+        self::assertCount(1, $batch['spans']);
+        self::assertSame('view', $batch['spans'][0]['kind']);
+        self::assertSame('View dashboard.blade.php', $batch['spans'][0]['name']);
+        self::assertSame(12, $batch['spans'][0]['duration_ms']);
+    }
+
     public function test_late_framework_event_does_not_overwrite_http_root(): void
     {
         $transformer = new TraceBatchTransformer('App', 'token', 'production', 'host');
