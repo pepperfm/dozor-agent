@@ -518,6 +518,16 @@ class Dozor implements DozorContract
             $payload['url'] = $this->safeUrl((string) $payload['url']);
         }
 
+        // Connection exceptions may embed signed URLs in their message.
+        $error = Arr::get($payload, 'error_message');
+        if (is_string($error) && $error !== '') {
+            $payload['error_message'] = mb_substr(
+                preg_replace('~https?://[^\\s]+~i', '[URL REDACTED]', $error) ?? '[ERROR REDACTED]',
+                0,
+                500,
+            );
+        }
+
         $this->report([
             'type' => 'outgoing_http',
             'trace_id' => $traceId,

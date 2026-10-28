@@ -538,4 +538,19 @@ final class TraceBatchTransformerTest extends TestCase
         self::assertContains($recordId, array_column($a, 'id'));
     }
 
+    public function test_standalone_framework_events_do_not_duplicate_root_spans(): void
+    {
+        $transformer = new TraceBatchTransformer('App', 'token', 'production', 'host');
+        $traceId = str()->ulid()->toString();
+        $result = $transformer->transform([[
+            'type' => 'event',
+            'trace_id' => $traceId,
+            'happened_at' => now()->toIso8601String(),
+            'payload' => ['name' => 'mail.sent'],
+        ]]);
+
+        self::assertCount(1, $result['traces'][0]['spans']);
+        self::assertSame('event', $result['traces'][0]['spans'][0]['kind']);
+    }
+
 }
