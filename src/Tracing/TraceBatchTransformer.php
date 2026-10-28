@@ -552,7 +552,7 @@ final class TraceBatchTransformer
                 'kind' => 'event',
                 'name' => (string) Arr::get($payload, 'name', Arr::get($payload, 'event_name', 'event')),
                 'start_offset_ms' => $offsetMs,
-                'duration_ms' => 1,
+                'duration_ms' => $this->resolveRecordDurationMs('event', $payload),
                 'connection' => null,
                 'normalized_signature' => null,
                 'sql_text' => null,

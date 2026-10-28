@@ -23,6 +23,8 @@ use Dozor\Watchers\LogWatcher;
 use Dozor\Watchers\QueueWatcher;
 use Dozor\Watchers\QueryWatcher;
 use Dozor\Watchers\FrameworkWatcher;
+use Dozor\Tracing\MeasuredViewEngine;
+use Illuminate\View\Engines\EngineResolver;
 use Illuminate\Cache\Events\CacheHit;
 use Illuminate\Cache\Events\CacheMissed;
 use Illuminate\Cache\Events\KeyWritten;
@@ -206,6 +208,21 @@ class DozorServiceProvider extends ServiceProvider
         $outgoingHttpEnabled = (bool) config('dozor.instrumentation.outgoing_http', true);
         $captureLogsEnabled = (bool) config('dozor.instrumentation.capture_logs', true);
         $captureEventsEnabled = (bool) config('dozor.instrumentation.capture_events', true);
+
+        if ((bool) config('dozor.instrumentation.capture_views', false)) {
+            $this->callAfterResolving('view.engine.resolver', static function (EngineResolver $resolver) use ($core): void {
+                // Bind after the original view engines are registered, and preserve
+                // the original engine behavior, including exceptions and caching.
+                foreach (['blade', 'php'] as $engineName) {
+                    $engine = $resolver->resolve($engineName);
+                    if ($engine instanceof MeasuredViewEngine) {
+                        continue;
+                    }
+
+                    $resolver->register($engineName, static fn() => new MeasuredViewEngine($engine, $core));
+                }
+            });
+        }
 
         Event::listen(QueryExecuted::class, $this->app->make(QueryWatcher::class));
 
