@@ -565,7 +565,9 @@ class Dozor implements DozorContract
         $cacheKey = is_string($cacheKey) ? $cacheKey : '';
         $samplingKey = $traceId . '|' . $operation . '|' . $cacheKey;
 
-        if (!$this->sampler->shouldSample('events', $samplingKey)) {
+        // Cache monitoring has its own sampling channel. Generic application
+        // events default to 10%, which silently undercounted cache hit/miss totals.
+        if (!$this->sampler->shouldSample('cache', $samplingKey)) {
             return;
         }
 

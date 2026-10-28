@@ -22,6 +22,7 @@ return [
         'jobs' => (float) env('DOZOR_JOB_SAMPLE_RATE', 1.0),
         'queries' => (float) env('DOZOR_QUERY_SAMPLE_RATE', 1.0),
         'outgoing_http' => (float) env('DOZOR_OUTGOING_HTTP_SAMPLE_RATE', 1.0),
+        'cache' => (float) env('DOZOR_CACHE_SAMPLE_RATE', 1.0),
         'logs' => (float) env('DOZOR_LOG_SAMPLE_RATE', 0.1),
         'events' => (float) env('DOZOR_EVENT_SAMPLE_RATE', 0.1),
     ],
