@@ -392,56 +392,64 @@ class Dozor implements DozorContract
 
     public function recordJobFinished(JobProcessed|JobFailed $event): void
     {
-        if (!$this->enabled() || $this->config('filtering.ignore_queue_jobs', false)) {
-            return;
-        }
+        try {
+            if (!$this->enabled() || $this->config('filtering.ignore_queue_jobs', false)) {
+                return;
+            }
 
-        $traceId = $this->currentTrace?->traceId ?? $this->activeJobTraceId ?? $this->activeCommandTraceId ?? $this->makeTraceId();
-        $samplingKey = $traceId . '|' . $event->connectionName . '|' . $event->job->resolveName();
+            $traceId = $this->currentTrace?->traceId ?? $this->activeJobTraceId ?? $this->activeCommandTraceId ?? $this->makeTraceId();
+            $samplingKey = $traceId . '|' . $event->connectionName . '|' . $event->job->resolveName();
 
-        if (!$this->sampler->shouldSample('jobs', $samplingKey)) {
-            unset($this->jobStartedAt[$this->jobKey($event)]);
+            if (!$this->sampler->shouldSample('jobs', $samplingKey)) {
+                unset($this->jobStartedAt[$this->jobKey($event)]);
+                $this->activeJobTraceId = null;
+                $this->jobTrace = null;
+
+                return;
+            }
+
+            $key = $this->jobKey($event);
+            $startedAt = $this->jobStartedAt[$key] ?? microtime(true);
+            unset($this->jobStartedAt[$key]);
+
+            $this->report([
+                'type' => 'job',
+                'trace_id' => $traceId,
+                'happened_at' => $this->isoTime(),
+                'app' => $this->config('app_name'),
+                'environment' => $this->config('environment'),
+                'server' => $this->config('server'),
+                'payload' => $this->attachSpanOffsets([
+                    'name' => $event->job->resolveName(),
+                    'queue' => $event->job->getQueue(),
+                    'connection' => $event->connectionName,
+                    'status' => $event instanceof JobFailed ? 'failed' : 'processed',
+                    'attempts' => $event->job->attempts(),
+                    'request_started_at' => \Illuminate\Support\Carbon::createFromTimestamp($startedAt)->toIso8601String(),
+                    'duration_ms' => round((microtime(true) - $startedAt) * 1000, 2),
+                    'exception' => $event instanceof JobFailed && $event->exception ? [
+                        'class' => $event->exception::class,
+                        'message' => $this->safeErrorMessage($event->exception->getMessage()),
+                    ] : null,
+                ]),
+            ]);
+
+            if ($event instanceof JobFailed && $event->exception instanceof Throwable) {
+                $this->recordException($event->exception, [
+                    'phase' => 'queue',
+                    'job' => $event->job->resolveName(),
+                ]);
+            }
+
             $this->activeJobTraceId = null;
             $this->jobTrace = null;
-
-            return;
+        } finally {
+            // Long-running Horizon/native workers must not carry the previous
+            // job's trace context into the next job after an exception.
+            $this->jobStartedAt = [];
+            $this->activeJobTraceId = null;
+            $this->jobTrace = null;
         }
-
-        $key = $this->jobKey($event);
-        $startedAt = $this->jobStartedAt[$key] ?? microtime(true);
-        unset($this->jobStartedAt[$key]);
-
-        $this->report([
-            'type' => 'job',
-            'trace_id' => $traceId,
-            'happened_at' => $this->isoTime(),
-            'app' => $this->config('app_name'),
-            'environment' => $this->config('environment'),
-            'server' => $this->config('server'),
-            'payload' => $this->attachSpanOffsets([
-                'name' => $event->job->resolveName(),
-                'queue' => $event->job->getQueue(),
-                'connection' => $event->connectionName,
-                'status' => $event instanceof JobFailed ? 'failed' : 'processed',
-                'attempts' => $event->job->attempts(),
-                'request_started_at' => \Illuminate\Support\Carbon::createFromTimestamp($startedAt)->toIso8601String(),
-                'duration_ms' => round((microtime(true) - $startedAt) * 1000, 2),
-                'exception' => $event instanceof JobFailed && $event->exception ? [
-                    'class' => $event->exception::class,
-                    'message' => $this->safeErrorMessage($event->exception->getMessage()),
-                ] : null,
-            ]),
-        ]);
-
-        if ($event instanceof JobFailed && $event->exception instanceof Throwable) {
-            $this->recordException($event->exception, [
-                'phase' => 'queue',
-                'job' => $event->job->resolveName(),
-            ]);
-        }
-
-        $this->activeJobTraceId = null;
-        $this->jobTrace = null;
     }
 
     /**
