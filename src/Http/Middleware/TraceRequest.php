@@ -58,7 +58,7 @@ final readonly class TraceRequest
         $this->capture(function () use ($request, $e): void {
             $this->core->recordException($e, [
                 'phase' => 'http',
-                'url' => $request->fullUrl(),
+                'url' => strtok($request->fullUrl(), '?#') ?: $request->url(),
                 'method' => $request->method(),
             ]);
 

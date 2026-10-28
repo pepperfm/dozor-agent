@@ -114,7 +114,9 @@ final class TraceBatchTransformer
         $externalTimeMs = $this->sumOutgoingHttpTime($records);
         $jobTimeMs = $this->sumJobTime($records);
         $durationMs = $this->resolveDurationMs($rootRecord, $records, $dbTimeMs, $externalTimeMs, $jobTimeMs);
-        $traceId = str()->ulid()->toString();
+        $traceId = \Illuminate\Support\Str::isUlid($sourceTraceId)
+            ? $sourceTraceId
+            : '0' . strtoupper(substr(hash('sha256', $this->appName . '|' . $this->environment . '|' . $sourceTraceId), 0, 25));
         $spans = [];
         $droppedSpans = 0;
 
@@ -274,6 +276,12 @@ final class TraceBatchTransformer
      */
     private function resolveStartedAt(array $rootRecord, array $records): string
     {
+        $rootPayload = Arr::get($rootRecord, 'payload', []);
+        $requestStartedAt = is_array($rootPayload) ? Arr::get($rootPayload, 'request_started_at') : null;
+        if (is_string($requestStartedAt) && $requestStartedAt !== '') {
+            return $requestStartedAt;
+        }
+
         $rootTimestamp = Arr::get($rootRecord, 'timestamp');
         if (is_numeric($rootTimestamp)) {
             try {
@@ -412,6 +420,7 @@ final class TraceBatchTransformer
                 'status_code' => null,
                 'metadata' => [
                     'bindings_count' => (int) Arr::get($payload, 'bindings_count', 0),
+                    'source' => Arr::get($payload, 'source'),
                 ],
             ],
             'job' => [
@@ -600,55 +609,8 @@ final class TraceBatchTransformer
             }
         }
 
-        $middleware = $this->resolveMiddleware($rootPayload);
-        $middlewarePhaseId = $phaseSpanIds[RequestLifecycleStage::BeforeMiddleware->value]
-            ?? $phaseSpanIds[RequestLifecycleStage::Middleware->value]
-            ?? $phaseSpanIds[RequestLifecycleStage::AfterMiddleware->value]
-            ?? null;
-        $middlewarePhaseRange = $phaseRanges[RequestLifecycleStage::BeforeMiddleware->value]
-            ?? $phaseRanges[RequestLifecycleStage::Middleware->value]
-            ?? $phaseRanges[RequestLifecycleStage::AfterMiddleware->value]
-            ?? null;
-
-        if (
-            is_string($middlewarePhaseId)
-            && is_array($middlewarePhaseRange)
-            && $middleware !== []
-        ) {
-            $phaseStart = max(0, (int) Arr::get($middlewarePhaseRange, 'start', 0));
-            $phaseEnd = max($phaseStart, (int) Arr::get($middlewarePhaseRange, 'end', $phaseStart));
-            $phaseDuration = max(1, $phaseEnd - $phaseStart + 1);
-            $middlewareCount = count($middleware);
-            $slotDuration = max(1, (int) floor($phaseDuration / max(1, $middlewareCount)));
-
-            foreach ($middleware as $index => $item) {
-                $middlewareStart = $phaseStart + ($slotDuration * $index);
-                $middlewareDuration = $index === $middlewareCount - 1
-                    ? max(1, ($phaseStart + $phaseDuration) - $middlewareStart)
-                    : $slotDuration;
-
-                $spans[] = [
-                    'id' => str()->ulid()->toString(),
-                    'parent_span_id' => $middlewarePhaseId,
-                    'kind' => 'middleware',
-                    'name' => $this->formatDisplayLabel($item),
-                    'start_offset_ms' => $middlewareStart,
-                    'duration_ms' => $middlewareDuration,
-                    'connection' => null,
-                    'normalized_signature' => null,
-                    'sql_text' => null,
-                    'rows_count' => null,
-                    'service' => null,
-                    'queue' => null,
-                    'method' => null,
-                    'status_code' => null,
-                    'metadata' => [
-                        'phase' => RequestLifecycleStage::Middleware->value,
-                        'middleware' => $item,
-                    ],
-                ];
-            }
-        }
+        // Middleware are known by name, but individual timings are not instrumented.
+        // Do not fabricate equal-duration spans that look like measured work.
 
         return [
             'spans' => $spans,

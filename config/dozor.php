@@ -46,6 +46,7 @@ return [
         'capture_cache' => env('DOZOR_CAPTURE_CACHE', false),
         'capture_events' => env('DOZOR_CAPTURE_EVENTS', false),
         'capture_request_headers' => env('DOZOR_CAPTURE_REQUEST_HEADERS', false),
+        'slow_query_source_threshold_ms' => (float) env('DOZOR_SLOW_QUERY_SOURCE_THRESHOLD_MS', 100.0),
         'capture_outgoing_http_headers' => env('DOZOR_CAPTURE_OUTGOING_HTTP_HEADERS', false),
         'event_prefixes' => array_values(array_filter(array_map('trim', explode(',', (string) env('DOZOR_EVENT_PREFIXES', 'App\\Events\\,Illuminate\\Auth\\Events\\'))))),
         'event_ignore' => array_values(array_filter(array_map('trim', explode(',', (string) env('DOZOR_EVENT_IGNORE', 'Illuminate\\Log\\Events\\MessageLogged'))))),

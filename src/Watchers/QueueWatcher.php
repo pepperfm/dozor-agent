@@ -28,6 +28,7 @@ final readonly class QueueWatcher
     {
         try {
             $this->core->recordJobFinished($event);
+            $this->core->digest();
         } catch (Throwable) {
         }
     }

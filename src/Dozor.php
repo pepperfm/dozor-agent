@@ -41,6 +41,8 @@ class Dozor implements DozorContract
      */
     private array $jobStartedAt = [];
 
+    private ?string $activeJobTraceId = null;
+
     private bool $capturingLogs = false;
 
     private bool $currentRequestSuppressed = false;
@@ -110,7 +112,7 @@ class Dozor implements DozorContract
 
             $requestMeta = [
                 'method' => $request->method(),
-                'url' => $request->fullUrl(),
+                'url' => $this->safeUrl($request->fullUrl()),
                 'path' => '/' . ltrim($request->path(), '/'),
                 'route_name' => $route?->getName(),
                 'route_uri' => $route?->uri(),
@@ -280,11 +282,20 @@ class Dozor implements DozorContract
             $this->endLifecycleStage(RequestLifecycleStage::End->value);
             $this->currentTrace?->closeOpenLifecycleStages();
 
-            $traceId = $this->currentTrace?->traceId ?? $this->makeTraceId();
+            $traceId = $this->currentTrace?->traceId ?? $this->activeJobTraceId ?? $this->makeTraceId();
             $durationMs = round((microtime(true) - $startedAt) * 1000, 2);
             $status = method_exists($response, 'getStatusCode') ? $response->getStatusCode() : ($e ? 500 : 200);
 
+            // Route and authenticated user are resolved after beginRequest().
+            $route = $request->route();
             $payload = array_merge($this->currentTrace?->requestMeta ?? [], [
+                'url' => $this->safeUrl($request->fullUrl()),
+                'route_name' => $route?->getName(),
+                'route_uri' => $route?->uri(),
+                'controller' => $route?->getActionName(),
+                'middleware' => $route?->gatherMiddleware() ?? [],
+                'user_id' => $request->user()?->getAuthIdentifier(),
+                'request_started_at' => \Illuminate\Support\Carbon::createFromTimestamp($startedAt)->toIso8601String(),
                 'status' => $status,
                 'duration_ms' => $durationMs,
                 'request_id' => $request->headers->get('X-Request-Id'),
@@ -329,7 +340,7 @@ class Dozor implements DozorContract
             return;
         }
 
-        $traceId = $this->currentTrace?->traceId ?? $this->makeTraceId();
+        $traceId = $this->currentTrace?->traceId ?? $this->activeJobTraceId ?? $this->makeTraceId();
         $samplingKey = $traceId . '|' . $event->connectionName . '|' . $event->sql;
 
         if (!$this->sampler->shouldSample('queries', $samplingKey)) {
@@ -338,6 +349,7 @@ class Dozor implements DozorContract
 
         $captureSql = (bool) $this->config('filtering.capture_query_sql', false);
         $sqlMaxLength = max(64, (int) $this->config('limits.max_sql_length', 2000));
+        $normalizedSql = $this->normalizeSql($event->sql);
 
         $this->report([
             'type' => 'query',
@@ -348,6 +360,9 @@ class Dozor implements DozorContract
             'server' => $this->config('server'),
             'payload' => $this->attachSpanOffsets([
                 'sql' => $captureSql ? mb_substr($event->sql, 0, $sqlMaxLength) : '[REDACTED_SQL]',
+                'normalized_signature' => mb_substr($normalizedSql, 0, 255),
+                'source' => ((float) $event->time >= (float) $this->config('instrumentation.slow_query_source_threshold_ms', 100.0))
+                    ? $this->querySource() : null,
                 'time_ms' => (float) $event->time,
                 'connection' => $event->connectionName,
                 'bindings_count' => count($event->bindings),
@@ -361,6 +376,7 @@ class Dozor implements DozorContract
             return;
         }
 
+        $this->activeJobTraceId = $this->makeTraceId();
         $this->jobStartedAt[$this->jobKey($event)] = microtime(true);
     }
 
@@ -370,10 +386,13 @@ class Dozor implements DozorContract
             return;
         }
 
-        $traceId = $this->currentTrace?->traceId ?? $this->makeTraceId();
+        $traceId = $this->currentTrace?->traceId ?? $this->activeJobTraceId ?? $this->makeTraceId();
         $samplingKey = $traceId . '|' . $event->connectionName . '|' . $event->job->resolveName();
 
         if (!$this->sampler->shouldSample('jobs', $samplingKey)) {
+            unset($this->jobStartedAt[$this->jobKey($event)]);
+            $this->activeJobTraceId = null;
+
             return;
         }
 
@@ -393,6 +412,7 @@ class Dozor implements DozorContract
                 'queue' => $event->job->getQueue(),
                 'connection' => $event->connectionName,
                 'status' => $event instanceof JobFailed ? 'failed' : 'processed',
+                'attempts' => $event->job->attempts(),
                 'duration_ms' => round((microtime(true) - $startedAt) * 1000, 2),
                 'exception' => $event instanceof JobFailed && $event->exception ? [
                     'class' => $event->exception::class,
@@ -400,6 +420,15 @@ class Dozor implements DozorContract
                 ] : null,
             ]),
         ]);
+
+        if ($event instanceof JobFailed && $event->exception instanceof Throwable) {
+            $this->recordException($event->exception, [
+                'phase' => 'queue',
+                'job' => $event->job->resolveName(),
+            ]);
+        }
+
+        $this->activeJobTraceId = null;
     }
 
     /**
@@ -411,7 +440,7 @@ class Dozor implements DozorContract
             return;
         }
 
-        $trace = $this->currentTrace?->traceId ?? $this->makeTraceId();
+        $trace = $this->currentTrace?->traceId ?? $this->activeJobTraceId ?? $this->makeTraceId();
         $samplingKey = $trace . '|' . $e::class . '|' . $e->getFile() . ':' . $e->getLine();
 
         if (!$this->sampler->shouldSample('exceptions', $samplingKey)) {
@@ -432,6 +461,10 @@ class Dozor implements DozorContract
             $payload['snippet'] = $this->sourceSnippet($e->getFile(), $e->getLine());
         }
 
+        if ($e->getTrace() !== []) {
+            $payload['stacktrace'] = $this->boundedStacktrace($e);
+        }
+
         $this->report([
             'type' => 'exception',
             'trace_id' => $trace,
@@ -440,7 +473,7 @@ class Dozor implements DozorContract
             'environment' => $this->config('environment'),
             'server' => $this->config('server'),
             'payload' => $payload,
-        ], immediate: true);
+        ], immediate: $this->currentTrace === null && $this->activeJobTraceId === null);
     }
 
     public function recordOutgoingHttp(array $payload): void
@@ -453,7 +486,7 @@ class Dozor implements DozorContract
             return;
         }
 
-        $traceId = $this->currentTrace?->traceId ?? $this->makeTraceId();
+        $traceId = $this->currentTrace?->traceId ?? $this->activeJobTraceId ?? $this->makeTraceId();
         $samplingKey = $traceId . '|' . Arr::get($payload, 'method') . '|' . Arr::get($payload, 'url');
 
         if (!$this->sampler->shouldSample('outgoing_http', $samplingKey)) {
@@ -466,6 +499,10 @@ class Dozor implements DozorContract
 
         if (is_array(Arr::get($payload, 'response_headers'))) {
             $payload['response_headers'] = $this->redactor->redactHeaders((array) Arr::get($payload, 'response_headers', []));
+        }
+
+        if (is_string(Arr::get($payload, 'url'))) {
+            $payload['url'] = $this->safeUrl((string) $payload['url']);
         }
 
         $this->report([
@@ -488,7 +525,7 @@ class Dozor implements DozorContract
             return;
         }
 
-        $traceId = $this->currentTrace?->traceId ?? $this->makeTraceId();
+        $traceId = $this->currentTrace?->traceId ?? $this->activeJobTraceId ?? $this->makeTraceId();
         $operation = Arr::get($payload, 'operation');
         $operation = is_string($operation) && $operation !== '' ? $operation : 'unknown';
         $cacheKey = Arr::get($payload, 'key');
@@ -524,7 +561,7 @@ class Dozor implements DozorContract
             return;
         }
 
-        $traceId = $this->currentTrace?->traceId ?? $this->makeTraceId();
+        $traceId = $this->currentTrace?->traceId ?? $this->activeJobTraceId ?? $this->makeTraceId();
         $samplingKey = $traceId . '|' . $level . '|' . $message;
 
         if (!$this->sampler->shouldSample('logs', $samplingKey)) {
@@ -558,7 +595,7 @@ class Dozor implements DozorContract
             return;
         }
 
-        $traceId = $this->currentTrace?->traceId ?? $this->makeTraceId();
+        $traceId = $this->currentTrace?->traceId ?? $this->activeJobTraceId ?? $this->makeTraceId();
         $samplingKey = $traceId . '|' . $eventName;
 
         if (!$this->sampler->shouldSample('events', $samplingKey)) {
@@ -644,6 +681,59 @@ class Dozor implements DozorContract
     private function sanitizePayload(array $payload): array
     {
         return $this->redactor->redactPayload($payload);
+    }
+
+    private function safeUrl(string $url): string
+    {
+        // Query strings and fragments can contain signed URLs and bearer credentials.
+        return explode('?', explode('#', $url, 2)[0], 2)[0];
+    }
+
+    private function normalizeSql(string $sql): string
+    {
+        // Bindings are never recorded. Normalize literal values for safe grouping.
+        $sql = preg_replace("/'(?:''|[^'])*'/", '?', $sql) ?? $sql;
+        $sql = preg_replace('/\b\d+(?:\.\d+)?\b/', '?', $sql) ?? $sql;
+
+        return trim(preg_replace('/\s+/', ' ', $sql) ?? $sql);
+    }
+
+    /**
+     * @return array{file: string, line: int}|null
+     */
+    private function querySource(): ?array
+    {
+        foreach (debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 24) as $frame) {
+            $file = $frame['file'] ?? '';
+            if (!is_string($file) || !str_contains($file, '/app/') || str_contains($file, '/vendor/')) {
+                continue;
+            }
+
+            return [
+                'file' => substr($file, strrpos($file, '/app/') + 1),
+                'line' => (int) ($frame['line'] ?? 0),
+            ];
+        }
+
+        return null;
+    }
+
+    /**
+     * @return list<array{file: string, line: int, call: string}>
+     */
+    private function boundedStacktrace(Throwable $exception): array
+    {
+        $frames = [];
+        foreach (array_slice($exception->getTrace(), 0, 15) as $frame) {
+            $file = (string) ($frame['file'] ?? '');
+            $frames[] = [
+                'file' => $file !== '' ? basename($file) : '',
+                'line' => (int) ($frame['line'] ?? 0),
+                'call' => mb_substr((string) ($frame['class'] ?? '') . (string) ($frame['type'] ?? '') . (string) ($frame['function'] ?? ''), 0, 255),
+            ];
+        }
+
+        return $frames;
     }
 
     private function sourceSnippet(string $file, int $line): ?array
