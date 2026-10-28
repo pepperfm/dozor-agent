@@ -138,4 +138,18 @@ final class TelemetryPrivacyTest extends TestCase
         self::assertLessThanOrEqual(15, count($exceptions[0]['metadata']['stacktrace']));
     }
 
+
+    public function test_application_event_array_keys_are_not_shipped(): void
+    {
+        $core = $this->createMock(DozorContract::class);
+        $core->expects(self::once())->method('recordApplicationEvent')
+            ->with('App\Events\Demo', self::callback(static function (array $payload): bool {
+                return ($payload['items'][0]['entries_count'] ?? null) === 2
+                    && !array_key_exists('keys', $payload['items'][0]);
+            }));
+
+        (new ApplicationEventWatcher($core, ['App\\Events\\']))
+            ->handle('App\Events\Demo', [['customer@example.test' => 'private', 'api_key' => 'secret']]);
+    }
+
 }
