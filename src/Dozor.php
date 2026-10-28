@@ -589,6 +589,36 @@ class Dozor implements DozorContract
         }
     }
 
+    public function recordFrameworkEvent(string $name, array $metadata = []): void
+    {
+        if (!$this->enabled() || !(bool) $this->config('instrumentation.capture_framework_events', true)) {
+            return;
+        }
+
+        $type = str_starts_with($name, 'artisan.') ? 'command' : 'event';
+        $duration = Arr::get($metadata, 'duration_ms');
+        $status = Arr::get($metadata, 'failed', false) ? 500 : 200;
+
+        $this->report([
+            'type' => $type,
+            'trace_id' => $this->currentTrace?->traceId ?? $this->activeJobTraceId ?? $this->makeTraceId(),
+            'happened_at' => $this->isoTime(),
+            'app' => $this->config('app_name'),
+            'environment' => $this->config('environment'),
+            'server' => $this->config('server'),
+            'payload' => $this->attachSpanOffsets([
+                'name' => $name,
+                'status' => $status,
+                'duration_ms' => is_numeric($duration) ? round((float) $duration, 2) : null,
+                'details' => $this->sanitizePayload($metadata),
+            ]),
+        ]);
+
+        if ($this->currentTrace === null && $this->activeJobTraceId === null) {
+            $this->digest();
+        }
+    }
+
     public function recordApplicationEvent(string $eventName, array $payload = []): void
     {
         if (!$this->enabled() || !$this->config('instrumentation.capture_events', false)) {

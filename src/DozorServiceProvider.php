@@ -22,6 +22,7 @@ use Dozor\Watchers\HttpWatcher;
 use Dozor\Watchers\LogWatcher;
 use Dozor\Watchers\QueueWatcher;
 use Dozor\Watchers\QueryWatcher;
+use Dozor\Watchers\FrameworkWatcher;
 use Illuminate\Cache\Events\CacheHit;
 use Illuminate\Cache\Events\CacheMissed;
 use Illuminate\Cache\Events\KeyWritten;
@@ -207,6 +208,17 @@ class DozorServiceProvider extends ServiceProvider
         $captureEventsEnabled = (bool) config('dozor.instrumentation.capture_events', true);
 
         Event::listen(QueryExecuted::class, $this->app->make(QueryWatcher::class));
+
+        if ((bool) config('dozor.instrumentation.capture_framework_events', true)) {
+            $framework = new FrameworkWatcher($core);
+            Event::listen(\Illuminate\Console\Events\CommandStarting::class, [$framework, 'commandStarting']);
+            Event::listen(\Illuminate\Console\Events\CommandFinished::class, [$framework, 'commandFinished']);
+            Event::listen(\Illuminate\Console\Events\ScheduledTaskFinished::class, [$framework, 'scheduledFinished']);
+            Event::listen(\Illuminate\Console\Events\ScheduledTaskFailed::class, [$framework, 'scheduledFailed']);
+            Event::listen(\Illuminate\Console\Events\ScheduledTaskSkipped::class, [$framework, 'scheduledSkipped']);
+            Event::listen(\Illuminate\Mail\Events\MessageSent::class, [$framework, 'messageSent']);
+            Event::listen(\Illuminate\Notifications\Events\NotificationSent::class, [$framework, 'notificationSent']);
+        }
         Event::listen(JobProcessing::class, [$this->app->make(QueueWatcher::class), 'started']);
         Event::listen(JobProcessed::class, [$this->app->make(QueueWatcher::class), 'finished']);
         Event::listen(JobFailed::class, [$this->app->make(QueueWatcher::class), 'finished']);

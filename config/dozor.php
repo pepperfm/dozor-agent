@@ -44,6 +44,7 @@ return [
         'outgoing_http' => env('DOZOR_INSTRUMENT_OUTGOING_HTTP', true),
         'capture_logs' => env('DOZOR_CAPTURE_LOGS', false),
         'capture_cache' => env('DOZOR_CAPTURE_CACHE', false),
+        'capture_framework_events' => env('DOZOR_CAPTURE_FRAMEWORK_EVENTS', true),
         'capture_events' => env('DOZOR_CAPTURE_EVENTS', false),
         'capture_request_headers' => env('DOZOR_CAPTURE_REQUEST_HEADERS', false),
         'slow_query_source_threshold_ms' => (float) env('DOZOR_SLOW_QUERY_SOURCE_THRESHOLD_MS', 100.0),
