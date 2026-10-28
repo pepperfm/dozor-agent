@@ -354,7 +354,7 @@ final class TraceBatchTransformer
         $rootTimestamp = Arr::get($rootRecord, 'timestamp');
         if (is_numeric($rootTimestamp)) {
             try {
-                return Carbon::createFromTimestamp((float) $rootTimestamp)->toIso8601String();
+                return Carbon::createFromTimestamp((float) $rootTimestamp)->format('Y-m-d\\TH:i:s.uP');
             } catch (Throwable) {
                 // fall through to happened_at path
             }
@@ -369,7 +369,7 @@ final class TraceBatchTransformer
             $timestamp = Arr::get($record, 'timestamp');
             if (is_numeric($timestamp)) {
                 try {
-                    return Carbon::createFromTimestamp((float) $timestamp)->toIso8601String();
+                    return Carbon::createFromTimestamp((float) $timestamp)->format('Y-m-d\\TH:i:s.uP');
                 } catch (Throwable) {
                     // fall through to happened_at path
                 }

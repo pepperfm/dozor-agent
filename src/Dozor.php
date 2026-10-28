@@ -309,7 +309,7 @@ class Dozor implements DozorContract
                 'controller' => $route?->getActionName(),
                 'middleware' => $route?->gatherMiddleware() ?? [],
                 'user_id' => $request->user()?->getAuthIdentifier(),
-                'request_started_at' => \Illuminate\Support\Carbon::createFromTimestamp($startedAt)->toIso8601String(),
+                'request_started_at' => \Illuminate\Support\Carbon::createFromTimestamp($startedAt)->format('Y-m-d\\TH:i:s.uP'),
                 'status' => $status,
                 'duration_ms' => $durationMs,
                 'request_id' => $request->headers->get('X-Request-Id'),
@@ -437,7 +437,7 @@ class Dozor implements DozorContract
                     'status' => $event instanceof JobFailed ? 'failed' : 'processed',
                     'attempts' => $event->job->attempts(),
                     'sampling_dropped' => $this->samplingDropped,
-                    'request_started_at' => \Illuminate\Support\Carbon::createFromTimestamp($startedAt)->toIso8601String(),
+                    'request_started_at' => \Illuminate\Support\Carbon::createFromTimestamp($startedAt)->format('Y-m-d\\TH:i:s.uP'),
                     'duration_ms' => round((microtime(true) - $startedAt) * 1000, 2),
                     'exception' => $event instanceof JobFailed && $event->exception ? [
                         'class' => $event->exception::class,
@@ -685,7 +685,7 @@ class Dozor implements DozorContract
         $type = str_starts_with($name, 'artisan.') ? 'command' : 'event';
         $duration = Arr::get($metadata, 'duration_ms');
         if ($type === 'command' && $this->commandTrace !== null) {
-            $metadata['request_started_at'] = \Illuminate\Support\Carbon::createFromTimestamp($this->commandTrace->startedAt)->toIso8601String();
+            $metadata['request_started_at'] = \Illuminate\Support\Carbon::createFromTimestamp($this->commandTrace->startedAt)->format('Y-m-d\\TH:i:s.uP');
         }
         $status = Arr::get($metadata, 'failed', false) ? 500 : 200;
 
@@ -940,7 +940,7 @@ class Dozor implements DozorContract
         }
 
         // Keep the original trace epoch in every partial transport packet.
-        $payload['trace_started_at'] = \Illuminate\Support\Carbon::createFromTimestamp($trace->startedAt)->toIso8601String();
+        $payload['trace_started_at'] = \Illuminate\Support\Carbon::createFromTimestamp($trace->startedAt)->format('Y-m-d\\TH:i:s.uP');
         $endOffsetUs = $trace->offsetUsAt();
         $resolvedDurationUs = $durationUs;
         if ($resolvedDurationUs === null && $durationMs !== null) {
