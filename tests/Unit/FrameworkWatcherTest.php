@@ -12,6 +12,36 @@ use Illuminate\Console\Events\CommandStarting;
 
 final class FrameworkWatcherTest extends TestCase
 {
+    public function test_it_preserves_scheduler_runtime_without_exposing_command_text(): void
+    {
+        $core = $this->createMock(DozorContract::class);
+        $core->expects(self::once())->method('recordFrameworkEvent')
+            ->with('schedule.finished', self::callback(static fn(array $payload): bool =>
+                $payload['task_type'] === \Illuminate\Console\Scheduling\Event::class
+                && $payload['duration_ms'] === 250.0
+                && !array_key_exists('command', $payload)
+            ));
+
+        $task = $this->createStub(\Illuminate\Console\Scheduling\Event::class);
+        (new FrameworkWatcher($core))->scheduledFinished(new \Illuminate\Console\Events\ScheduledTaskFinished($task, 0.25));
+    }
+
+    public function test_it_preserves_failed_scheduler_runtime_and_exception_class(): void
+    {
+        $core = $this->createMock(DozorContract::class);
+        $core->expects(self::once())->method('recordFrameworkEvent')
+            ->with('schedule.failed', self::callback(static fn(array $payload): bool =>
+                $payload['failed'] === true
+                && $payload['exception_class'] === \RuntimeException::class
+                && $payload['duration_ms'] === 75.0
+                && !array_key_exists('command', $payload)
+            ));
+
+        $task = $this->createStub(\Illuminate\Console\Scheduling\Event::class);
+        $event = new \Illuminate\Console\Events\ScheduledTaskFailed($task, new \RuntimeException('secret command'), 0.075);
+        (new FrameworkWatcher($core))->scheduledFailed($event);
+    }
+
     public function test_it_records_command_outcome_without_arguments(): void
     {
         $core = $this->createMock(DozorContract::class);
