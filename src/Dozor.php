@@ -789,10 +789,11 @@ class Dozor implements DozorContract
     private function normalizeSql(string $sql): string
     {
         // SQL literals and comments may contain PII even without bindings.
-        $sql = preg_replace('/\$([A-Za-z_][A-Za-z_0-9]*)?\$[\s\S]*?\$\1\$/', '?', $sql) ?? $sql;
+        $sql = preg_replace('/\$\$[\s\S]*?\$\$|\$([A-Za-z_][A-Za-z_0-9]*)\$[\s\S]*?\$\1\$/', '?', $sql) ?? $sql;
         $sql = preg_replace('/\/\*[\s\S]*?\*\/|--[^\r\n]*/', ' ', $sql) ?? $sql;
         $sql = preg_replace('/\x27(?:\x27\x27|[^\x27])*\x27/', '?', $sql) ?? $sql;
-        $sql = preg_replace('/"(?:\"\"|[^"])*"/', '"identifier"', $sql) ?? $sql;
+        $sql = preg_replace_callback('/"(?:""|[^"])*"/', static fn(array $match): string =>
+            '"id:' . substr(hash('sha256', $match[0]), 0, 12) . '"', $sql) ?? $sql;
         $sql = preg_replace('/\b\d+(?:\.\d+)?\b/', '?', $sql) ?? $sql;
 
         return trim(preg_replace('/\s+/', ' ', $sql) ?? $sql);
