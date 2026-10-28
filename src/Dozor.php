@@ -135,7 +135,7 @@ class Dozor implements DozorContract
                 'user_agent' => $request->userAgent(),
                 'sampled' => !$this->currentRequestSuppressed,
                 'cache_capture_enabled' => (bool) $this->config('instrumentation.capture_cache', false),
-                'cache_sample_rate' => $this->sampler->resolveRate('events'),
+                'cache_sample_rate' => $this->sampler->resolveRate('cache'),
             ];
 
             if ((bool) $this->config('instrumentation.capture_request_headers', false)) {
@@ -585,6 +585,8 @@ class Dozor implements DozorContract
         // Cache monitoring has its own sampling channel. Generic application
         // events default to 10%, which silently undercounted cache hit/miss totals.
         if (!$this->sampler->shouldSample('cache', $samplingKey)) {
+            $this->countSamplingDrop('cache');
+
             return;
         }
 
@@ -719,7 +721,7 @@ class Dozor implements DozorContract
         $samplingKey = $traceId . '|' . $eventName;
 
         if (!$this->sampler->shouldSample('events', $samplingKey)) {
-            $this->countSamplingDrop('cache');
+            $this->countSamplingDrop('events');
 
             return;
         }
