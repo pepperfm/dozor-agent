@@ -394,6 +394,7 @@ class Dozor implements DozorContract
             return;
         }
 
+        $this->samplingDropped = [];
         $this->activeJobTraceId = $this->makeTraceId();
         $startedAt = microtime(true);
         $this->jobTrace = new TraceContext($this->activeJobTraceId, $startedAt);
@@ -435,6 +436,7 @@ class Dozor implements DozorContract
                     'connection' => $event->connectionName,
                     'status' => $event instanceof JobFailed ? 'failed' : 'processed',
                     'attempts' => $event->job->attempts(),
+                    'sampling_dropped' => $this->samplingDropped,
                     'request_started_at' => \Illuminate\Support\Carbon::createFromTimestamp($startedAt)->toIso8601String(),
                     'duration_ms' => round((microtime(true) - $startedAt) * 1000, 2),
                     'exception' => $event instanceof JobFailed && $event->exception ? [
@@ -457,6 +459,7 @@ class Dozor implements DozorContract
             // Long-running Horizon/native workers must not carry the previous
             // job's trace context into the next job after an exception.
             $this->jobStartedAt = [];
+            $this->samplingDropped = [];
             $this->activeJobTraceId = null;
             $this->jobTrace = null;
         }
@@ -645,6 +648,7 @@ class Dozor implements DozorContract
             return;
         }
 
+        $this->samplingDropped = [];
         $this->activeCommandTraceId = $this->makeTraceId();
         $this->trackedCommandName = $command;
         $this->commandTrace = new TraceContext($this->activeCommandTraceId, microtime(true));
@@ -659,6 +663,7 @@ class Dozor implements DozorContract
         $this->activeCommandTraceId = null;
         $this->trackedCommandName = null;
         $this->commandTrace = null;
+        $this->samplingDropped = [];
     }
 
     public function recordFrameworkEvent(string $name, array $metadata = []): void
@@ -687,6 +692,7 @@ class Dozor implements DozorContract
                 'status' => $status,
                 'duration_ms' => is_numeric($duration) ? round((float) $duration, 2) : null,
                 'details' => $this->sanitizePayload($metadata),
+                'sampling_dropped' => $this->samplingDropped,
             ]),
         ]);
 
