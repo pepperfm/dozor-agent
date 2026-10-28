@@ -79,4 +79,31 @@ final class IngestTest extends TestCase
         self::assertSame(2, $ingest->buffer->count());
         self::assertSame([$first, $second], $ingest->buffer->all());
     }
+
+    public function test_request_root_reports_prior_buffer_evictions_after_agent_outage(): void
+    {
+        $ingest = new Ingest(
+            transmitTo: '127.0.0.1:4815',
+            connectionTimeout: 0.01,
+            timeout: 0.01,
+            streamFactory: static function () {
+                throw new RuntimeException('agent unreachable');
+            },
+            buffer: new RecordsBuffer(2),
+            tokenHash: 'token-hash',
+            retryCooldownSeconds: 60.0,
+        );
+
+        $ingest->write(['type' => 'query', 'payload' => []]);
+        $ingest->write(['type' => 'query', 'payload' => []]);
+        $ingest->write(['type' => 'query', 'payload' => []]);
+        self::assertSame(1, $ingest->buffer->droppedRecords());
+
+        $ingest->write(['type' => 'request', 'payload' => ['path' => '/orders']]);
+        $records = $ingest->buffer->all();
+
+        self::assertSame(1, $records[1]['payload']['transport_dropped_records']);
+        self::assertSame(2, $ingest->buffer->droppedRecords());
+    }
+
 }
