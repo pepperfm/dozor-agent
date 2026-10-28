@@ -53,6 +53,9 @@ class Dozor implements DozorContract
 
     private bool $capturingLogs = false;
 
+    /** @var array<string, int> */
+    private array $samplingDropped = [];
+
     private bool $currentRequestSuppressed = false;
 
     private string $currentRequestSuppressedReason = '';
@@ -106,6 +109,7 @@ class Dozor implements DozorContract
             $route = $request->route();
             $this->currentRequestSuppressed = false;
             $this->currentRequestSuppressedReason = '';
+            $this->samplingDropped = [];
 
             if ($this->requestFilter->shouldIgnoreRequest($request)) {
                 $this->currentRequestSuppressed = true;
@@ -130,6 +134,8 @@ class Dozor implements DozorContract
                 'user_id' => $request->user()?->getAuthIdentifier(),
                 'user_agent' => $request->userAgent(),
                 'sampled' => !$this->currentRequestSuppressed,
+                'cache_capture_enabled' => (bool) $this->config('instrumentation.capture_cache', false),
+                'cache_sample_rate' => $this->sampler->resolveRate('events'),
             ];
 
             if ((bool) $this->config('instrumentation.capture_request_headers', false)) {
@@ -308,6 +314,7 @@ class Dozor implements DozorContract
                 'duration_ms' => $durationMs,
                 'request_id' => $request->headers->get('X-Request-Id'),
                 'memory_peak_bytes' => memory_get_peak_usage(true),
+                'sampling_dropped' => $this->samplingDropped,
                 'lifecycle_stages' => $this->currentTrace?->lifecycleStages() ?? [],
             ]);
 
@@ -335,6 +342,7 @@ class Dozor implements DozorContract
             $this->currentTrace = null;
             $this->currentRequestSuppressed = false;
             $this->currentRequestSuppressedReason = '';
+            $this->samplingDropped = [];
         }
     }
 
@@ -352,6 +360,8 @@ class Dozor implements DozorContract
         $samplingKey = $traceId . '|' . $event->connectionName . '|' . $event->sql;
 
         if (!$this->sampler->shouldSample('queries', $samplingKey)) {
+            $this->countSamplingDrop('queries');
+
             return;
         }
 
@@ -465,6 +475,8 @@ class Dozor implements DozorContract
         $samplingKey = $trace . '|' . $e::class . '|' . $e->getFile() . ':' . $e->getLine();
 
         if (!$this->sampler->shouldSample('exceptions', $samplingKey)) {
+            $this->countSamplingDrop('exceptions');
+
             return;
         }
 
@@ -511,6 +523,8 @@ class Dozor implements DozorContract
         $samplingKey = $traceId . '|' . Arr::get($payload, 'method') . '|' . Arr::get($payload, 'url');
 
         if (!$this->sampler->shouldSample('outgoing_http', $samplingKey)) {
+            $this->countSamplingDrop('outgoing_http');
+
             return;
         }
 
@@ -691,6 +705,8 @@ class Dozor implements DozorContract
         $samplingKey = $traceId . '|' . $eventName;
 
         if (!$this->sampler->shouldSample('events', $samplingKey)) {
+            $this->countSamplingDrop('cache');
+
             return;
         }
 
@@ -867,6 +883,13 @@ class Dozor implements DozorContract
         }
 
         return $snippet;
+    }
+
+    private function countSamplingDrop(string $channel): void
+    {
+        if ($this->currentTrace !== null || $this->jobTrace !== null || $this->commandTrace !== null) {
+            $this->samplingDropped[$channel] = ($this->samplingDropped[$channel] ?? 0) + 1;
+        }
     }
 
     private function isoTime(): string
