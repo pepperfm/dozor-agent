@@ -13,6 +13,37 @@ use function str_repeat;
 
 final class TraceBatchTransformerTest extends TestCase
 {
+    public function test_job_root_preserves_failure_and_retry_attempts_for_jobs_dashboard(): void
+    {
+        $transformer = new TraceBatchTransformer('App', 'token', 'production', 'worker-1');
+        $traceId = str()->ulid()->toString();
+
+        $trace = $transformer->transform([[
+            'record_id' => str()->ulid()->toString(),
+            'type' => 'job',
+            'trace_id' => $traceId,
+            'happened_at' => now()->toIso8601String(),
+            'payload' => [
+                'name' => 'App\\Jobs\\SendInvoice',
+                'queue' => 'default',
+                'status' => 'failed',
+                'attempts' => 3,
+                'duration_ms' => 125,
+            ],
+        ]])['traces'][0];
+
+        $jobSpans = array_values(array_filter(
+            $trace['spans'],
+            static fn(array $span): bool => $span['kind'] === 'job',
+        ));
+
+        self::assertCount(1, $jobSpans);
+        self::assertSame('failed', $jobSpans[0]['metadata']['status']);
+        self::assertSame(3, $jobSpans[0]['metadata']['attempts']);
+        self::assertSame('default', $jobSpans[0]['queue']);
+        self::assertSame(125, $jobSpans[0]['duration_ms']);
+    }
+
     public function test_it_adds_bounded_request_context_to_trace_meta(): void
     {
         $headers = [];

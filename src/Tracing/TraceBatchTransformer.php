@@ -419,10 +419,13 @@ final class TraceBatchTransformer
             'queue' => is_string(Arr::get($payload, 'queue')) ? Arr::get($payload, 'queue') : null,
             'method' => $this->resolveRootSpanMethod($rootType, $payload),
             'status_code' => $this->resolveRootSpanStatusCode($rootType, $payload),
-            'metadata' => [
+            'metadata' => array_filter([
                 'source_type' => $rootType,
                 'started_at' => $startedAt,
-            ],
+                'status' => $rootType === 'job' ? Arr::get($payload, 'status') : null,
+                'attempts' => $rootType === 'job' ? Arr::get($payload, 'attempts') : null,
+                'exit_code' => $rootType === 'command' ? Arr::get($payload, 'details.exit_code') : null,
+            ], static fn(mixed $value): bool => $value !== null),
         ];
     }
 
@@ -510,6 +513,7 @@ final class TraceBatchTransformer
                 'status_code' => null,
                 'metadata' => [
                     'status' => Arr::get($payload, 'status'),
+                    'attempts' => Arr::get($payload, 'attempts'),
                 ],
             ],
             'cache' => [
