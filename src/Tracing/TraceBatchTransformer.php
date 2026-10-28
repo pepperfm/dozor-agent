@@ -214,6 +214,24 @@ final class TraceBatchTransformer
             Arr::get($rootPayload, 'request_payload'),
         );
 
+        $queryGroups = [];
+        foreach ($spans as $span) {
+            if (($span['kind'] ?? null) !== 'query') {
+                continue;
+            }
+
+            $signature = (string) ($span['normalized_signature'] ?? $span['name'] ?? '');
+            if ($signature === '' || $signature === '[REDACTED_SQL]') {
+                continue;
+            }
+
+            $key = (string) ($span['connection'] ?? 'default') . '|' . $signature;
+            $queryGroups[$key] = ($queryGroups[$key] ?? 0) + 1;
+        }
+
+        $repeatedQueryGroups = count(array_filter($queryGroups, static fn(int $count): bool => $count >= 2));
+        $suspectedNPlusOneGroups = count(array_filter($queryGroups, static fn(int $count): bool => $count >= 5));
+
         return [
             'id' => $traceId,
             'type' => $rootType,
@@ -239,6 +257,8 @@ final class TraceBatchTransformer
             'tags' => [],
             'meta' => [
                 'source_trace_id' => $sourceTraceId,
+                'repeated_query_groups' => $repeatedQueryGroups,
+                'suspected_n_plus_one_groups' => $suspectedNPlusOneGroups,
                 'records_count' => count($records),
                 'middleware' => $middleware,
                 'route_name' => Arr::get($rootPayload, 'route_name'),
@@ -258,6 +278,12 @@ final class TraceBatchTransformer
      *
      * @return array<string, mixed>
      */
+
+    private function stableSpanId(string $sourceTraceId, string $component): string
+    {
+        return '0' . strtoupper(substr(hash('sha256', $this->appName . '|' . $this->environment . '|' . $sourceTraceId . '|' . $component), 0, 25));
+    }
+
     private function resolveRootRecord(array $records): array
     {
         foreach (['request', 'command', 'job'] as $rootType) {
@@ -326,7 +352,7 @@ final class TraceBatchTransformer
         }
 
         return [
-            'id' => str()->ulid()->toString(),
+            'id' => $this->stableSpanId((string) Arr::get($rootRecord, 'trace_id', ''), 'root'),
             'parent_span_id' => null,
             'kind' => match ($rootType) {
                 'request' => 'http',

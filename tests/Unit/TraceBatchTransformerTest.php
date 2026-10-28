@@ -176,8 +176,8 @@ final class TraceBatchTransformerTest extends TestCase
 
         self::assertIsArray($controllerPhase);
         self::assertIsArray($middlewarePhase);
-        self::assertIsArray($authMiddleware);
-        self::assertIsArray($throttleMiddleware);
+        self::assertNull($authMiddleware);
+        self::assertNull($throttleMiddleware);
         self::assertIsArray($querySpan);
         self::assertIsArray($cacheSpan);
         self::assertIsArray($outgoingSpan);
@@ -187,8 +187,7 @@ final class TraceBatchTransformerTest extends TestCase
         self::assertSame('action', $querySpan['metadata']['lifecycle_phase'] ?? null);
         self::assertSame('action', $cacheSpan['metadata']['lifecycle_phase'] ?? null);
         self::assertSame('action', $outgoingSpan['metadata']['lifecycle_phase'] ?? null);
-        self::assertSame('Auth', $authMiddleware['name'] ?? null);
-        self::assertSame('Throttle:api', $throttleMiddleware['name'] ?? null);
+        // No synthetic middleware spans: only measured phases are reported.
 
         $middlewareChildrenCount = 0;
         foreach ($spans as $span) {
@@ -204,7 +203,7 @@ final class TraceBatchTransformerTest extends TestCase
             }
         }
 
-        self::assertSame(2, $middlewareChildrenCount);
+        self::assertSame(0, $middlewareChildrenCount);
     }
 
     public function test_it_preserves_repeated_lifecycle_phases_and_uses_longest_phase_for_middleware_children(): void
@@ -273,15 +272,7 @@ final class TraceBatchTransformerTest extends TestCase
             static fn(mixed $span): bool => is_array($span) && ($span['kind'] ?? null) === 'middleware',
         ));
 
-        self::assertCount(2, $middlewareChildren);
-        self::assertSame(
-            $canonicalMiddlewarePhase['id'] ?? null,
-            $middlewareChildren[0]['parent_span_id'] ?? null,
-        );
-        self::assertSame(
-            $canonicalMiddlewarePhase['id'] ?? null,
-            $middlewareChildren[1]['parent_span_id'] ?? null,
-        );
+        self::assertCount(0, $middlewareChildren);
     }
 
     public function test_it_prefers_payload_start_offset_over_happened_at_for_nested_spans(): void
@@ -467,4 +458,23 @@ final class TraceBatchTransformerTest extends TestCase
 
         return null;
     }
+    public function test_transport_fragments_share_stable_trace_and_root_ids(): void
+    {
+        $transformer = new TraceBatchTransformer('App', 'token', 'production', 'host');
+        $traceId = str()->ulid()->toString();
+        $record = [
+            'type' => 'request',
+            'trace_id' => $traceId,
+            'happened_at' => now()->toIso8601String(),
+            'payload' => ['method' => 'GET', 'path' => '/orders', 'status' => 200, 'duration_ms' => 12],
+        ];
+
+        $first = $transformer->transform([$record])['traces'][0];
+        $second = $transformer->transform([$record])['traces'][0];
+
+        self::assertSame($traceId, $first['id']);
+        self::assertSame($first['id'], $second['id']);
+        self::assertSame($first['spans'][0]['id'], $second['spans'][0]['id']);
+    }
+
 }
