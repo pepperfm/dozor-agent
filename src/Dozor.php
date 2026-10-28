@@ -872,7 +872,10 @@ class Dozor implements DozorContract
     private function safeSourcePath(string $file): string
     {
         $path = str_replace('\\', '/', $file);
-        $root = function_exists('base_path') ? str_replace('\\', '/', (string) base_path()) : '';
+        $app = \Illuminate\Container\Container::getInstance();
+        $root = $app instanceof \Illuminate\Foundation\Application
+            ? str_replace('\\', '/', $app->basePath())
+            : '';
         if ($root !== '' && str_starts_with($path, rtrim($root, '/') . '/')) {
             return substr($path, strlen(rtrim($root, '/')) + 1);
         }
