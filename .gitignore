@@ -3,3 +3,7 @@ vendor
 .DS_Store
 .phpunit.result.cache
 .phpunit.cache
+
+.ai-factory.json
+.codex
+.claude

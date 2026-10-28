@@ -1,0 +1,20 @@
+{
+  "mcpServers": {
+    "github": {
+      "command": "bunx",
+      "args": [
+        "@modelcontextprotocol/server-github"
+      ],
+      "env": {
+        "GITHUB_TOKEN": "${GITHUB_TOKEN}"
+      }
+    },
+    "filesystem": {
+      "command": "bunx",
+      "args": [
+        "@modelcontextprotocol/server-filesystem",
+        "."
+      ]
+    }
+  }
+}
