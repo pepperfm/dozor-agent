@@ -43,6 +43,8 @@ class Dozor implements DozorContract
 
     private ?string $activeJobTraceId = null;
 
+    private ?TraceContext $jobTrace = null;
+
     private bool $capturingLogs = false;
 
     private bool $currentRequestSuppressed = false;
@@ -377,7 +379,9 @@ class Dozor implements DozorContract
         }
 
         $this->activeJobTraceId = $this->makeTraceId();
-        $this->jobStartedAt[$this->jobKey($event)] = microtime(true);
+        $startedAt = microtime(true);
+        $this->jobTrace = new TraceContext($this->activeJobTraceId, $startedAt);
+        $this->jobStartedAt[$this->jobKey($event)] = $startedAt;
     }
 
     public function recordJobFinished(JobProcessed|JobFailed $event): void
@@ -392,6 +396,7 @@ class Dozor implements DozorContract
         if (!$this->sampler->shouldSample('jobs', $samplingKey)) {
             unset($this->jobStartedAt[$this->jobKey($event)]);
             $this->activeJobTraceId = null;
+            $this->jobTrace = null;
 
             return;
         }
@@ -413,6 +418,7 @@ class Dozor implements DozorContract
                 'connection' => $event->connectionName,
                 'status' => $event instanceof JobFailed ? 'failed' : 'processed',
                 'attempts' => $event->job->attempts(),
+                'request_started_at' => \Illuminate\Support\Carbon::createFromTimestamp($startedAt)->toIso8601String(),
                 'duration_ms' => round((microtime(true) - $startedAt) * 1000, 2),
                 'exception' => $event instanceof JobFailed && $event->exception ? [
                     'class' => $event->exception::class,
@@ -429,6 +435,7 @@ class Dozor implements DozorContract
         }
 
         $this->activeJobTraceId = null;
+        $this->jobTrace = null;
     }
 
     /**
@@ -801,7 +808,7 @@ class Dozor implements DozorContract
      */
     private function attachSpanOffsets(array $payload, ?int $durationMs = null, ?int $durationUs = null): array
     {
-        $trace = $this->currentTrace;
+        $trace = $this->currentTrace ?? $this->jobTrace;
         if ($trace === null) {
             return $payload;
         }
