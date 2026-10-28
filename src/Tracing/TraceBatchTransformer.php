@@ -564,7 +564,11 @@ final class TraceBatchTransformer
                     ? 'View ' . (string) Arr::get($payload, 'details.view', 'template')
                     : (string) Arr::get($payload, 'name', Arr::get($payload, 'event_name', 'event')),
                 'start_offset_ms' => $offsetMs,
-                'duration_ms' => $this->resolveRecordDurationMs('event', $payload),
+                // Plain Laravel events mark an instant. A duration is only
+                // meaningful when a watcher actually measured it.
+                'duration_ms' => is_numeric(Arr::get($payload, 'duration_ms'))
+                    ? max(0, (int) round((float) Arr::get($payload, 'duration_ms')))
+                    : 0,
                 'connection' => null,
                 'normalized_signature' => null,
                 'sql_text' => null,

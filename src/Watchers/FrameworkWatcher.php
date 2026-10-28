@@ -80,6 +80,7 @@ final class FrameworkWatcher
             'task_type' => $event->task::class,
             'failed' => true,
             'exception_class' => $event->exception::class,
+            'duration_ms' => $event->runtime !== null ? round(max(0.0, $event->runtime) * 1000, 3) : null,
         ]);
     }
 

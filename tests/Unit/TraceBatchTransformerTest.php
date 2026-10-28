@@ -517,6 +517,19 @@ final class TraceBatchTransformerTest extends TestCase
         self::assertNull($fragment['spans'][0]['parent_span_id']);
     }
 
+    public function test_unmeasured_application_events_have_zero_duration(): void
+    {
+        $transformer = new TraceBatchTransformer('App', 'token', 'production', 'host');
+        $result = $transformer->transform([[
+            'type' => 'event',
+            'trace_id' => str()->ulid()->toString(),
+            'happened_at' => now()->toIso8601String(),
+            'payload' => ['name' => 'schedule.skipped'],
+        ]]);
+
+        self::assertSame(0, $result['traces'][0]['spans'][0]['duration_ms']);
+    }
+
     public function test_measured_blade_event_is_rendered_as_view_span(): void
     {
         $transformer = new TraceBatchTransformer('App', 'token', 'production', 'host');
