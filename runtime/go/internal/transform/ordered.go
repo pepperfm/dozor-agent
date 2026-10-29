@@ -8,7 +8,7 @@ import (
 // orderedObject is used only for PHP fields whose insertion order affects
 // generated metadata. Ordinary trace maps remain plain Go maps.
 type orderedObject struct {
-	keys []string
+	keys   []string
 	values obj
 }
 

@@ -29,9 +29,9 @@ func TestPreservePHPHeaderInsertionOrderAtTruncationBoundary(t *testing.T) {
 	var result struct {
 		Traces []struct {
 			Meta struct {
-				RequestHeaders map[string]string `json:"request_headers"`
-				HeadersTruncated bool `json:"request_headers_truncated"`
-				Preview string `json:"request_payload_preview"`
+				RequestHeaders   map[string]string `json:"request_headers"`
+				HeadersTruncated bool              `json:"request_headers_truncated"`
+				Preview          string            `json:"request_payload_preview"`
 			} `json:"meta"`
 		} `json:"traces"`
 	}
