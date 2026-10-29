@@ -469,6 +469,109 @@ final class TraceBatchTransformerTest extends TestCase
      *
      * @return array<string, mixed>|null
      */
+    public function test_nested_job_fragment_is_a_child_without_replacing_http_root(): void
+    {
+        $transformer = new TraceBatchTransformer('App', 'token', 'production', 'host');
+        $traceId = str()->ulid()->toString();
+        $startedAt = now()->toIso8601String();
+        $job = $transformer->transform([[
+            'type' => 'job_child',
+            'record_id' => str()->ulid()->toString(),
+            'trace_id' => $traceId,
+            'happened_at' => $startedAt,
+            'payload' => [
+                'trace_started_at' => $startedAt,
+                'name' => 'App\\Jobs\\SendInvoice',
+                'status' => 'failed',
+                'attempts' => 2,
+                'duration_ms' => 15,
+            ],
+        ]])['traces'][0];
+
+        self::assertCount(1, $job['spans']);
+        self::assertSame('job', $job['spans'][0]['kind']);
+        self::assertSame('failed', $job['spans'][0]['metadata']['status']);
+        self::assertNull($job['spans'][0]['parent_span_id']);
+        self::assertNotSame('request', $job['type']);
+
+        $request = $transformer->transform([[
+            'type' => 'request',
+            'trace_id' => $traceId,
+            'happened_at' => $startedAt,
+            'payload' => [
+                'method' => 'GET',
+                'path' => '/invoice',
+                'status' => 200,
+                'duration_ms' => 25,
+            ],
+        ]])['traces'][0];
+
+        self::assertSame($request['id'], $job['id']);
+        self::assertSame('http', $request['spans'][0]['kind']);
+        self::assertNotSame($request['spans'][0]['id'], $job['spans'][0]['id']);
+    }
+
+    public function test_unmeasured_outgoing_http_does_not_invent_one_millisecond(): void
+    {
+        $trace = (new TraceBatchTransformer('App', 'token', 'production', 'host'))->transform([[
+            'type' => 'outgoing_http',
+            'record_id' => str()->ulid()->toString(),
+            'trace_id' => str()->ulid()->toString(),
+            'happened_at' => now()->toIso8601String(),
+            'payload' => [
+                'url' => 'https://example.test/api',
+                'trace_started_at' => now()->toIso8601String(),
+                'status_code' => null,
+                'duration_ms' => null,
+            ],
+        ]])['traces'][0];
+
+        self::assertSame(0, $trace['external_time_ms']);
+        self::assertCount(1, $trace['spans']);
+        self::assertSame(0, $trace['spans'][0]['duration_ms']);
+    }
+
+    public function test_query_measured_during_render_is_parented_to_render_phase(): void
+    {
+        $traceId = str()->ulid()->toString();
+        $startedAt = now()->toIso8601String();
+        $trace = (new TraceBatchTransformer('App', 'token', 'production', 'host'))->transform([
+            [
+                'type' => 'request',
+                'trace_id' => $traceId,
+                'happened_at' => $startedAt,
+                'payload' => [
+                    'duration_ms' => 100,
+                    'status' => 200,
+                    'method' => 'GET',
+                    'path' => '/render',
+                    'lifecycle_stages' => [
+                        ['name' => 'action', 'start_offset_ms' => 0, 'duration_ms' => 40],
+                        ['name' => 'render', 'start_offset_ms' => 40, 'duration_ms' => 60],
+                    ],
+                ],
+            ],
+            [
+                'type' => 'query',
+                'record_id' => str()->ulid()->toString(),
+                'trace_id' => $traceId,
+                'happened_at' => $startedAt,
+                'payload' => [
+                    'time_ms' => 5,
+                    'start_offset_ms' => 60,
+                    'normalized_signature' => 'select * from posts where id = ?',
+                ],
+            ],
+        ])['traces'][0];
+
+        $render = $this->findSpan($trace['spans'], 'lifecycle', 'Render');
+        $query = $this->findSpan($trace['spans'], 'query');
+        self::assertIsArray($render);
+        self::assertIsArray($query);
+        self::assertSame($render['id'], $query['parent_span_id']);
+        self::assertSame('render', $query['metadata']['lifecycle_phase']);
+    }
+
     private function findSpan(array $spans, string $kind, ?string $name = null): ?array
     {
         foreach ($spans as $span) {
