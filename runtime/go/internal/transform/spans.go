@@ -14,7 +14,7 @@ func rootSpan(record obj,rootType,startedAt,app,environment string)obj{
   "outgoing_http":"outgoing_http","event":"event","log":"log",
  }[rootType]
  if kind==""{kind="internal"}
- name:=rootType
+ name:=""
  if rootType=="request"{name=firstString(payload,"route_uri","path")}
  if name==""{name=firstString(payload,"name")}
  if name==""{name=rootType}

@@ -28,6 +28,12 @@ func(t *Transformer)Transform(ctx context.Context,raw json.RawMessage)(json.RawM
  var records []obj
  if err:=json.Unmarshal(raw,&records);err!=nil{return nil,err}
  if records==nil{return nil,errors.New("records must be an array")}
+ for _,record:=range records{
+  if record==nil{return nil,errors.New("record must be an object")}
+  if _,exists:=record["payload"];exists{
+   if _,ok:=record["payload"].(map[string]any);!ok{return nil,errors.New("record payload must be an object")}
+  }
+ }
  keys,groups:=groupRecords(records)
  traces:=[]any{}
  for _,source:=range keys{

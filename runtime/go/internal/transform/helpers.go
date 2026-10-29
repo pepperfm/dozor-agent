@@ -169,7 +169,7 @@ func headerValue(v any)string{
  default:return ""
  }
 }
-func headers(v any)(obj,bool){
+func headers(v any)(any,bool){
  out:=obj{};truncated:=false
  input:=asObj(v)
  // map order is not significant when under the 32 header limit.
@@ -183,6 +183,7 @@ func headers(v any)(obj,bool){
   if utf8.RuneCountInString(value)>512{value=shortRune(value,512);truncated=true}
   out[k]=value;count++
  }
+ if len(out)==0{return []any{},truncated}
  return out,truncated
 }
 func hostFromURL(value string)string{
