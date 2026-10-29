@@ -8,12 +8,23 @@ use Dozor\Contracts\DozorContract;
 use Illuminate\Queue\Events\JobFailed;
 use Illuminate\Queue\Events\JobProcessed;
 use Illuminate\Queue\Events\JobProcessing;
+use Illuminate\Queue\Events\Looping;
 use Throwable;
 
 final readonly class QueueWatcher
 {
     public function __construct(private DozorContract $core)
     {
+    }
+
+    public function looping(Looping $event): void
+    {
+        try {
+            if ($this->core->recordQueueLoop($event)) {
+                $this->core->digest();
+            }
+        } catch (Throwable) {
+        }
     }
 
     public function started(JobProcessing $event): void
