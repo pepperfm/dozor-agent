@@ -44,6 +44,18 @@ jobs:
           php runtime/go/tests/php_client.php
           test "$(find "$DOZOR_GO_SPOOL_PATH/queue" -name '*.json' | wc -l)" -ge 1
 
+  php-golden-fixtures:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+      - name: Install PHP transformer dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+      - name: Generate deterministic reference fixtures
+        run: php -d zend.assertions=1 -d assert.exception=1 runtime/go/tests/generate_goldens.php
+
   cross-build:
     needs: test
     runs-on: ubuntu-latest
