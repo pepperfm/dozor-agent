@@ -1,0 +1,339 @@
+{
+  "input": [
+    {
+      "type": "request",
+      "trace_id": "01J00000000000000000000100",
+      "record_id": "01J00000000000000000000101",
+      "server": "fixture-host",
+      "happened_at": "2026-10-29T02:00:00+00:00",
+      "payload": {
+        "request_started_at": "2026-10-29T02:00:00+00:00",
+        "duration_ms": 120,
+        "method": "GET",
+        "route_uri": "orders/{order}",
+        "path": "/orders/123",
+        "url": "https://fixture.test/orders/123",
+        "status": 500,
+        "controller": "App\\Http\\Controllers\\OrdersController",
+        "middleware": [
+          "web",
+          "auth"
+        ],
+        "request_id": "request-fixed",
+        "headers": {
+          "X-Debug-Fixture": "test"
+        },
+        "request_payload": {
+          "example": true
+        },
+        "lifecycle_stages": [
+          {
+            "name": "bootstrap",
+            "start_offset_ms": 0,
+            "duration_ms": 10
+          },
+          {
+            "name": "controller",
+            "start_offset_ms": 10,
+            "duration_ms": 60
+          },
+          {
+            "name": "render",
+            "start_offset_ms": 70,
+            "duration_ms": 30
+          }
+        ]
+      }
+    },
+    {
+      "type": "query",
+      "trace_id": "01J00000000000000000000100",
+      "record_id": "01J00000000000000000000102",
+      "payload": {
+        "start_offset_ms": 20,
+        "time_ms": 5.6,
+        "connection": "pgsql",
+        "sql": "SELECT * FROM orders WHERE id = ?",
+        "normalized_signature": "select * from orders where id = ?",
+        "bindings_count": 1
+      }
+    },
+    {
+      "type": "outgoing_http",
+      "trace_id": "01J00000000000000000000100",
+      "record_id": "01J00000000000000000000103",
+      "payload": {
+        "start_offset_ms": 32,
+        "duration_ms": 13,
+        "method": "POST",
+        "url": "https://payments.test/charge",
+        "host": "payments.test",
+        "status_code": 201,
+        "request_headers": {
+          "Content-Type": "application/json"
+        }
+      }
+    },
+    {
+      "type": "exception",
+      "trace_id": "01J00000000000000000000100",
+      "record_id": "01J00000000000000000000104",
+      "payload": {
+        "start_offset_ms": 53,
+        "class": "RuntimeException",
+        "message": "fixture failure",
+        "file": "/test/Example.php",
+        "line": 42,
+        "stacktrace": [
+          "#0 fixture"
+        ]
+      }
+    }
+  ],
+  "expected": {
+    "v": 1,
+    "app": {
+      "name": "fixture-app",
+      "token": "fixture-token-not-a-secret"
+    },
+    "environment": "testing",
+    "server": "fixture-host",
+    "sent_at": "2026-10-29T02:00:00+00:00",
+    "traces": [
+      {
+        "id": "01J00000000000000000000100",
+        "type": "request",
+        "started_at": "2026-10-29T02:00:00+00:00",
+        "method": "GET",
+        "route": "orders/{order}",
+        "uri": "https://fixture.test/orders/123",
+        "controller": "App\\Http\\Controllers\\OrdersController",
+        "host": "fixture.test",
+        "status_code": 500,
+        "duration_ms": 120,
+        "db_time_ms": 6,
+        "external_time_ms": 13,
+        "job_time_ms": 0,
+        "cpu_time_ms": 0,
+        "memory_mb": 0,
+        "request_id": "request-fixed",
+        "release": null,
+        "user_label": null,
+        "tenant_label": null,
+        "deployment_id": null,
+        "spans": [
+          {
+            "id": "0F4165C26F48497803182FEB1F",
+            "parent_span_id": null,
+            "kind": "http",
+            "name": "orders/{order}",
+            "start_offset_ms": 0,
+            "duration_ms": 120,
+            "connection": null,
+            "normalized_signature": null,
+            "sql_text": null,
+            "rows_count": null,
+            "service": null,
+            "queue": null,
+            "method": "GET",
+            "status_code": 500,
+            "metadata": {
+              "source_type": "request",
+              "started_at": "2026-10-29T02:00:00+00:00"
+            }
+          },
+          {
+            "id": "0BC282DEC376B8D1A7421AB795",
+            "parent_span_id": "0F4165C26F48497803182FEB1F",
+            "kind": "lifecycle",
+            "name": "Bootstrap",
+            "start_offset_ms": 0,
+            "duration_ms": 10,
+            "connection": null,
+            "normalized_signature": null,
+            "sql_text": null,
+            "rows_count": null,
+            "service": null,
+            "queue": null,
+            "method": null,
+            "status_code": null,
+            "metadata": {
+              "phase": "bootstrap",
+              "legacy_phase": null,
+              "phase_meta": []
+            }
+          },
+          {
+            "id": "0D1403331E5A4E11AA556CD4AF",
+            "parent_span_id": "0F4165C26F48497803182FEB1F",
+            "kind": "lifecycle",
+            "name": "Controller",
+            "start_offset_ms": 10,
+            "duration_ms": 60,
+            "connection": null,
+            "normalized_signature": null,
+            "sql_text": null,
+            "rows_count": null,
+            "service": null,
+            "queue": null,
+            "method": null,
+            "status_code": null,
+            "metadata": {
+              "phase": "action",
+              "legacy_phase": "controller",
+              "phase_meta": []
+            }
+          },
+          {
+            "id": "06F718A29D29A8AC975BA41B08",
+            "parent_span_id": "0F4165C26F48497803182FEB1F",
+            "kind": "lifecycle",
+            "name": "Render",
+            "start_offset_ms": 70,
+            "duration_ms": 30,
+            "connection": null,
+            "normalized_signature": null,
+            "sql_text": null,
+            "rows_count": null,
+            "service": null,
+            "queue": null,
+            "method": null,
+            "status_code": null,
+            "metadata": {
+              "phase": "render",
+              "legacy_phase": null,
+              "phase_meta": []
+            }
+          },
+          {
+            "id": "01J00000000000000000000102",
+            "parent_span_id": "0D1403331E5A4E11AA556CD4AF",
+            "kind": "query",
+            "name": "SELECT * FROM orders WHERE id = ?",
+            "start_offset_ms": 20,
+            "duration_ms": 6,
+            "connection": "pgsql",
+            "normalized_signature": "select * from orders where id = ?",
+            "sql_text": "SELECT * FROM orders WHERE id = ?",
+            "rows_count": null,
+            "service": null,
+            "queue": null,
+            "method": null,
+            "status_code": null,
+            "metadata": {
+              "bindings_count": 1,
+              "source": null,
+              "lifecycle_phase": "action"
+            }
+          },
+          {
+            "id": "01J00000000000000000000103",
+            "parent_span_id": "0D1403331E5A4E11AA556CD4AF",
+            "kind": "outgoing_http",
+            "name": "https://payments.test/charge",
+            "start_offset_ms": 32,
+            "duration_ms": 13,
+            "connection": null,
+            "normalized_signature": null,
+            "sql_text": null,
+            "rows_count": null,
+            "service": "payments.test",
+            "queue": null,
+            "method": "POST",
+            "status_code": 201,
+            "metadata": {
+              "url": "https://payments.test/charge",
+              "failed": false,
+              "error_class": null,
+              "error_message": null,
+              "request_headers": {
+                "Content-Type": "application/json"
+              },
+              "request_headers_truncated": false,
+              "response_headers": [],
+              "response_headers_truncated": false,
+              "lifecycle_phase": "action"
+            }
+          },
+          {
+            "id": "01J00000000000000000000104",
+            "parent_span_id": "0D1403331E5A4E11AA556CD4AF",
+            "kind": "exception",
+            "name": "RuntimeException",
+            "start_offset_ms": 53,
+            "duration_ms": 1,
+            "connection": null,
+            "normalized_signature": null,
+            "sql_text": null,
+            "rows_count": null,
+            "service": null,
+            "queue": null,
+            "method": null,
+            "status_code": null,
+            "metadata": {
+              "message": "fixture failure",
+              "file": "/test/Example.php",
+              "line": 42,
+              "stacktrace": [
+                "#0 fixture"
+              ],
+              "lifecycle_phase": "action"
+            }
+          }
+        ],
+        "tags": [],
+        "meta": {
+          "source_trace_id": "01J00000000000000000000100",
+          "repeated_query_groups": 0,
+          "suspected_n_plus_one_groups": 0,
+          "records_count": 4,
+          "dropped_spans": 0,
+          "transport_dropped_records": 0,
+          "span_limit": 10,
+          "sampling_dropped": [],
+          "cache_capture_enabled": false,
+          "cache_sample_rate": 1,
+          "middleware": [
+            "web",
+            "auth"
+          ],
+          "route_name": null,
+          "request_headers": {
+            "X-Debug-Fixture": "test"
+          },
+          "request_headers_truncated": false,
+          "request_payload_preview": "{\"example\":true}",
+          "request_payload_preview_truncated": false,
+          "lifecycle_ready": true,
+          "lifecycle_stages": [
+            {
+              "name": "bootstrap",
+              "start_offset_ms": 0,
+              "duration_ms": 10
+            },
+            {
+              "name": "controller",
+              "start_offset_ms": 10,
+              "duration_ms": 60
+            },
+            {
+              "name": "render",
+              "start_offset_ms": 70,
+              "duration_ms": 30
+            }
+          ]
+        },
+        "exception": {
+          "fingerprint": null,
+          "title": "RuntimeException",
+          "class": "RuntimeException",
+          "message": "fixture failure",
+          "file": "/test/Example.php",
+          "line": 42,
+          "owner": "platform",
+          "regression": false
+        }
+      }
+    ]
+  }
+}

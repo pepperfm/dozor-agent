@@ -1,0 +1,122 @@
+{
+  "input": [
+    {
+      "type": "request",
+      "trace_id": "non-ulid-trace",
+      "record_id": "01J00000000000000000000401",
+      "happened_at": "2026-10-29T02:00:00+00:00",
+      "payload": {
+        "duration_ms": 0,
+        "method": "PUT",
+        "status": 999
+      }
+    },
+    {
+      "type": "cache",
+      "trace_id": "non-ulid-trace",
+      "record_id": "01J00000000000000000000402",
+      "payload": {
+        "operation": "miss"
+      }
+    }
+  ],
+  "expected": {
+    "v": 1,
+    "app": {
+      "name": "fixture-app",
+      "token": "fixture-token-not-a-secret"
+    },
+    "environment": "testing",
+    "server": "fixture-host",
+    "sent_at": "2026-10-29T02:00:00+00:00",
+    "traces": [
+      {
+        "id": "0F13D1AB75E35699EE7F90F897",
+        "type": "request",
+        "started_at": "2026-10-29T02:00:00+00:00",
+        "method": "PUT",
+        "route": "/",
+        "uri": "internal://agent",
+        "controller": null,
+        "host": "fixture-host",
+        "status_code": 200,
+        "duration_ms": 0,
+        "db_time_ms": 0,
+        "external_time_ms": 0,
+        "job_time_ms": 0,
+        "cpu_time_ms": 0,
+        "memory_mb": 0,
+        "request_id": null,
+        "release": null,
+        "user_label": null,
+        "tenant_label": null,
+        "deployment_id": null,
+        "spans": [
+          {
+            "id": "0155A52BD971C7A3C1EA3CB7B5",
+            "parent_span_id": null,
+            "kind": "http",
+            "name": "request",
+            "start_offset_ms": 0,
+            "duration_ms": 0,
+            "connection": null,
+            "normalized_signature": null,
+            "sql_text": null,
+            "rows_count": null,
+            "service": null,
+            "queue": null,
+            "method": "PUT",
+            "status_code": 200,
+            "metadata": {
+              "source_type": "request",
+              "started_at": "2026-10-29T02:00:00+00:00"
+            }
+          },
+          {
+            "id": "01J00000000000000000000402",
+            "parent_span_id": "0155A52BD971C7A3C1EA3CB7B5",
+            "kind": "cache",
+            "name": "Cache Miss",
+            "start_offset_ms": 0,
+            "duration_ms": 0,
+            "connection": null,
+            "normalized_signature": null,
+            "sql_text": null,
+            "rows_count": null,
+            "service": null,
+            "queue": null,
+            "method": null,
+            "status_code": null,
+            "metadata": {
+              "operation": "miss",
+              "key_hash": null,
+              "store": null
+            }
+          }
+        ],
+        "tags": [],
+        "meta": {
+          "source_trace_id": "non-ulid-trace",
+          "repeated_query_groups": 0,
+          "suspected_n_plus_one_groups": 0,
+          "records_count": 2,
+          "dropped_spans": 0,
+          "transport_dropped_records": 0,
+          "span_limit": 10,
+          "sampling_dropped": [],
+          "cache_capture_enabled": false,
+          "cache_sample_rate": 1,
+          "middleware": [],
+          "route_name": null,
+          "request_headers": [],
+          "request_headers_truncated": false,
+          "request_payload_preview": null,
+          "request_payload_preview_truncated": false,
+          "lifecycle_ready": false,
+          "lifecycle_stages": []
+        },
+        "exception": null
+      }
+    ]
+  }
+}

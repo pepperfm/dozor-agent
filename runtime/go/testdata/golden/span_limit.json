@@ -1,0 +1,452 @@
+{
+  "input": [
+    {
+      "type": "request",
+      "trace_id": "01J00000000000000000000500",
+      "record_id": "01J00000000000000000000501",
+      "happened_at": "2026-10-29T02:00:00+00:00",
+      "payload": {
+        "duration_ms": 100,
+        "method": "GET"
+      }
+    },
+    {
+      "type": "event",
+      "trace_id": "01J00000000000000000000500",
+      "record_id": "01J00000000000000000000510",
+      "payload": {
+        "start_offset_ms": 0,
+        "name": "test.fixture-event"
+      }
+    },
+    {
+      "type": "event",
+      "trace_id": "01J00000000000000000000500",
+      "record_id": "01J00000000000000000000511",
+      "payload": {
+        "start_offset_ms": 3,
+        "name": "test.fixture-event"
+      }
+    },
+    {
+      "type": "event",
+      "trace_id": "01J00000000000000000000500",
+      "record_id": "01J00000000000000000000512",
+      "payload": {
+        "start_offset_ms": 6,
+        "name": "test.fixture-event"
+      }
+    },
+    {
+      "type": "event",
+      "trace_id": "01J00000000000000000000500",
+      "record_id": "01J00000000000000000000513",
+      "payload": {
+        "start_offset_ms": 9,
+        "name": "test.fixture-event"
+      }
+    },
+    {
+      "type": "event",
+      "trace_id": "01J00000000000000000000500",
+      "record_id": "01J00000000000000000000514",
+      "payload": {
+        "start_offset_ms": 12,
+        "name": "test.fixture-event"
+      }
+    },
+    {
+      "type": "event",
+      "trace_id": "01J00000000000000000000500",
+      "record_id": "01J00000000000000000000515",
+      "payload": {
+        "start_offset_ms": 15,
+        "name": "test.fixture-event"
+      }
+    },
+    {
+      "type": "event",
+      "trace_id": "01J00000000000000000000500",
+      "record_id": "01J00000000000000000000516",
+      "payload": {
+        "start_offset_ms": 18,
+        "name": "test.fixture-event"
+      }
+    },
+    {
+      "type": "event",
+      "trace_id": "01J00000000000000000000500",
+      "record_id": "01J00000000000000000000517",
+      "payload": {
+        "start_offset_ms": 21,
+        "name": "test.fixture-event"
+      }
+    },
+    {
+      "type": "event",
+      "trace_id": "01J00000000000000000000500",
+      "record_id": "01J00000000000000000000518",
+      "payload": {
+        "start_offset_ms": 24,
+        "name": "test.fixture-event"
+      }
+    },
+    {
+      "type": "event",
+      "trace_id": "01J00000000000000000000500",
+      "record_id": "01J00000000000000000000519",
+      "payload": {
+        "start_offset_ms": 27,
+        "name": "test.fixture-event"
+      }
+    },
+    {
+      "type": "event",
+      "trace_id": "01J00000000000000000000500",
+      "record_id": "01J00000000000000000000520",
+      "payload": {
+        "start_offset_ms": 30,
+        "name": "test.fixture-event"
+      }
+    },
+    {
+      "type": "event",
+      "trace_id": "01J00000000000000000000500",
+      "record_id": "01J00000000000000000000521",
+      "payload": {
+        "start_offset_ms": 33,
+        "name": "test.fixture-event"
+      }
+    },
+    {
+      "type": "event",
+      "trace_id": "01J00000000000000000000500",
+      "record_id": "01J00000000000000000000522",
+      "payload": {
+        "start_offset_ms": 36,
+        "name": "test.fixture-event"
+      }
+    },
+    {
+      "type": "event",
+      "trace_id": "01J00000000000000000000500",
+      "record_id": "01J00000000000000000000523",
+      "payload": {
+        "start_offset_ms": 39,
+        "name": "test.fixture-event"
+      }
+    },
+    {
+      "type": "event",
+      "trace_id": "01J00000000000000000000500",
+      "record_id": "01J00000000000000000000524",
+      "payload": {
+        "start_offset_ms": 42,
+        "name": "test.fixture-event"
+      }
+    },
+    {
+      "type": "event",
+      "trace_id": "01J00000000000000000000500",
+      "record_id": "01J00000000000000000000525",
+      "payload": {
+        "start_offset_ms": 45,
+        "name": "test.fixture-event"
+      }
+    },
+    {
+      "type": "event",
+      "trace_id": "01J00000000000000000000500",
+      "record_id": "01J00000000000000000000526",
+      "payload": {
+        "start_offset_ms": 48,
+        "name": "test.fixture-event"
+      }
+    },
+    {
+      "type": "event",
+      "trace_id": "01J00000000000000000000500",
+      "record_id": "01J00000000000000000000527",
+      "payload": {
+        "start_offset_ms": 51,
+        "name": "test.fixture-event"
+      }
+    },
+    {
+      "type": "event",
+      "trace_id": "01J00000000000000000000500",
+      "record_id": "01J00000000000000000000528",
+      "payload": {
+        "start_offset_ms": 54,
+        "name": "test.fixture-event"
+      }
+    },
+    {
+      "type": "event",
+      "trace_id": "01J00000000000000000000500",
+      "record_id": "01J00000000000000000000529",
+      "payload": {
+        "start_offset_ms": 57,
+        "name": "test.fixture-event"
+      }
+    }
+  ],
+  "expected": {
+    "v": 1,
+    "app": {
+      "name": "fixture-app",
+      "token": "fixture-token-not-a-secret"
+    },
+    "environment": "testing",
+    "server": "fixture-host",
+    "sent_at": "2026-10-29T02:00:00+00:00",
+    "traces": [
+      {
+        "id": "01J00000000000000000000500",
+        "type": "request",
+        "started_at": "2026-10-29T02:00:00+00:00",
+        "method": "GET",
+        "route": "/",
+        "uri": "internal://agent",
+        "controller": null,
+        "host": "fixture-host",
+        "status_code": 200,
+        "duration_ms": 100,
+        "db_time_ms": 0,
+        "external_time_ms": 0,
+        "job_time_ms": 0,
+        "cpu_time_ms": 0,
+        "memory_mb": 0,
+        "request_id": null,
+        "release": null,
+        "user_label": null,
+        "tenant_label": null,
+        "deployment_id": null,
+        "spans": [
+          {
+            "id": "0C0ADA7141E74B55741C70677F",
+            "parent_span_id": null,
+            "kind": "http",
+            "name": "request",
+            "start_offset_ms": 0,
+            "duration_ms": 100,
+            "connection": null,
+            "normalized_signature": null,
+            "sql_text": null,
+            "rows_count": null,
+            "service": null,
+            "queue": null,
+            "method": "GET",
+            "status_code": 200,
+            "metadata": {
+              "source_type": "request",
+              "started_at": "2026-10-29T02:00:00+00:00"
+            }
+          },
+          {
+            "id": "01J00000000000000000000510",
+            "parent_span_id": "0C0ADA7141E74B55741C70677F",
+            "kind": "event",
+            "name": "test.fixture-event",
+            "start_offset_ms": 0,
+            "duration_ms": 0,
+            "connection": null,
+            "normalized_signature": null,
+            "sql_text": null,
+            "rows_count": null,
+            "service": null,
+            "queue": null,
+            "method": null,
+            "status_code": null,
+            "metadata": {
+              "start_offset_ms": 0,
+              "name": "test.fixture-event"
+            }
+          },
+          {
+            "id": "01J00000000000000000000511",
+            "parent_span_id": "0C0ADA7141E74B55741C70677F",
+            "kind": "event",
+            "name": "test.fixture-event",
+            "start_offset_ms": 3,
+            "duration_ms": 0,
+            "connection": null,
+            "normalized_signature": null,
+            "sql_text": null,
+            "rows_count": null,
+            "service": null,
+            "queue": null,
+            "method": null,
+            "status_code": null,
+            "metadata": {
+              "start_offset_ms": 3,
+              "name": "test.fixture-event"
+            }
+          },
+          {
+            "id": "01J00000000000000000000512",
+            "parent_span_id": "0C0ADA7141E74B55741C70677F",
+            "kind": "event",
+            "name": "test.fixture-event",
+            "start_offset_ms": 6,
+            "duration_ms": 0,
+            "connection": null,
+            "normalized_signature": null,
+            "sql_text": null,
+            "rows_count": null,
+            "service": null,
+            "queue": null,
+            "method": null,
+            "status_code": null,
+            "metadata": {
+              "start_offset_ms": 6,
+              "name": "test.fixture-event"
+            }
+          },
+          {
+            "id": "01J00000000000000000000513",
+            "parent_span_id": "0C0ADA7141E74B55741C70677F",
+            "kind": "event",
+            "name": "test.fixture-event",
+            "start_offset_ms": 9,
+            "duration_ms": 0,
+            "connection": null,
+            "normalized_signature": null,
+            "sql_text": null,
+            "rows_count": null,
+            "service": null,
+            "queue": null,
+            "method": null,
+            "status_code": null,
+            "metadata": {
+              "start_offset_ms": 9,
+              "name": "test.fixture-event"
+            }
+          },
+          {
+            "id": "01J00000000000000000000514",
+            "parent_span_id": "0C0ADA7141E74B55741C70677F",
+            "kind": "event",
+            "name": "test.fixture-event",
+            "start_offset_ms": 12,
+            "duration_ms": 0,
+            "connection": null,
+            "normalized_signature": null,
+            "sql_text": null,
+            "rows_count": null,
+            "service": null,
+            "queue": null,
+            "method": null,
+            "status_code": null,
+            "metadata": {
+              "start_offset_ms": 12,
+              "name": "test.fixture-event"
+            }
+          },
+          {
+            "id": "01J00000000000000000000515",
+            "parent_span_id": "0C0ADA7141E74B55741C70677F",
+            "kind": "event",
+            "name": "test.fixture-event",
+            "start_offset_ms": 15,
+            "duration_ms": 0,
+            "connection": null,
+            "normalized_signature": null,
+            "sql_text": null,
+            "rows_count": null,
+            "service": null,
+            "queue": null,
+            "method": null,
+            "status_code": null,
+            "metadata": {
+              "start_offset_ms": 15,
+              "name": "test.fixture-event"
+            }
+          },
+          {
+            "id": "01J00000000000000000000516",
+            "parent_span_id": "0C0ADA7141E74B55741C70677F",
+            "kind": "event",
+            "name": "test.fixture-event",
+            "start_offset_ms": 18,
+            "duration_ms": 0,
+            "connection": null,
+            "normalized_signature": null,
+            "sql_text": null,
+            "rows_count": null,
+            "service": null,
+            "queue": null,
+            "method": null,
+            "status_code": null,
+            "metadata": {
+              "start_offset_ms": 18,
+              "name": "test.fixture-event"
+            }
+          },
+          {
+            "id": "01J00000000000000000000517",
+            "parent_span_id": "0C0ADA7141E74B55741C70677F",
+            "kind": "event",
+            "name": "test.fixture-event",
+            "start_offset_ms": 21,
+            "duration_ms": 0,
+            "connection": null,
+            "normalized_signature": null,
+            "sql_text": null,
+            "rows_count": null,
+            "service": null,
+            "queue": null,
+            "method": null,
+            "status_code": null,
+            "metadata": {
+              "start_offset_ms": 21,
+              "name": "test.fixture-event"
+            }
+          },
+          {
+            "id": "01J00000000000000000000518",
+            "parent_span_id": "0C0ADA7141E74B55741C70677F",
+            "kind": "event",
+            "name": "test.fixture-event",
+            "start_offset_ms": 24,
+            "duration_ms": 0,
+            "connection": null,
+            "normalized_signature": null,
+            "sql_text": null,
+            "rows_count": null,
+            "service": null,
+            "queue": null,
+            "method": null,
+            "status_code": null,
+            "metadata": {
+              "start_offset_ms": 24,
+              "name": "test.fixture-event"
+            }
+          }
+        ],
+        "tags": [],
+        "meta": {
+          "source_trace_id": "01J00000000000000000000500",
+          "repeated_query_groups": 0,
+          "suspected_n_plus_one_groups": 0,
+          "records_count": 21,
+          "dropped_spans": 11,
+          "transport_dropped_records": 0,
+          "span_limit": 10,
+          "sampling_dropped": [],
+          "cache_capture_enabled": false,
+          "cache_sample_rate": 1,
+          "middleware": [],
+          "route_name": null,
+          "request_headers": [],
+          "request_headers_truncated": false,
+          "request_payload_preview": null,
+          "request_payload_preview_truncated": false,
+          "lifecycle_ready": false,
+          "lifecycle_stages": []
+        },
+        "exception": null
+      }
+    ]
+  }
+}

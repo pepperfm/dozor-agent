@@ -174,6 +174,15 @@ foreach ($cases as $name => $records) {
     foreach ($outbound['traces'] as $trace) {
         assert(count($trace['spans']) <= 10);
     }
+    $fixturePath = dirname(__DIR__) . '/testdata/golden/' . $name . '.json';
+    if (!is_file($fixturePath)) {
+        throw new RuntimeException('Missing golden fixture: ' . $name);
+    }
+    $golden = json_decode((string) file_get_contents($fixturePath), true, 512, JSON_THROW_ON_ERROR);
+    if ($golden != ['input' => $records, 'expected' => $outbound]) {
+        throw new RuntimeException('PHP transformer semantic drift detected: ' . $name);
+    }
+
     echo 'GOLDEN_FIXTURE:' . $name . ':' . json_encode([
         'input' => $records,
         'expected' => $outbound,
