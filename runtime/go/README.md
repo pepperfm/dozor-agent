@@ -8,7 +8,7 @@
 - Конкурентный ingest, ограничения клиентов и таймауты. ACK только после durable записи.
 - Spool с атомарной записью, fsync, lock одного процесса, queue/processing/failed, bounded capacity и восстановлением после сбоя.
 - Go transformer (traces, spans, lifecycle, nested records, exceptions, truncation) с **11 PHP-generated golden fixtures** в CI.
-- Независимый HTTP worker: Bearer token, 202, 429/5xx, Retry-After с отложенной spool-попыткой (не блокирует другие батчи), backoff+jitter, dead-letter и сохранение outbound payload между попытками.
+- Независимый HTTP worker: проверенный TLS с отказом от недоверенного сертификата, Bearer token, 202, 429/5xx, Retry-After с отложенной spool-попыткой (не блокирует другие батчи), backoff+jitter, dead-letter и сохранение outbound payload между попытками.
 - Периодические heartbeat, JSON runtime state, `status --json/--strict`, интерактивный `--debug` TUI и безопасные headless логи.
 - GitHub Actions: Go race/integration tests, PHP SDK PHPUnit, golden-drift gate, Linux/macOS × AMD64/ARM64. Бинарники публикуются при release tag.
 - systemd unit, установщик с SHA256, инструкции для Sail.
