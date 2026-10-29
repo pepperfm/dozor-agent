@@ -1,42 +1,55 @@
-# Dozor Go daemon — **incomplete migration / experimental**
+# Dozor Agent — Go daemon + Laravel PHP SDK
 
-This is migration work, not a drop-in replacement for the PHP daemon. The PHP Laravel SDK, instrumentation, TCP protocol and legacy PHP agent remain unchanged.
+Сбор телеметрии остаётся в PHP/Laravel; доставка выполняется отдельным небольшим Go-процессом. **Никакого Go SDK или Go runtime на сервере не требуется**: только готовый бинарник.
 
-## Implemented
+## Реализовано
 
-- PHP SDK `v1` framing (`<length>:v1:<7-character XXH128 prefix>:<JSON>`), 1 MiB frame cap, `PING`, `2:OK` / `5:ER`.
-- Bounded concurrent TCP clients and deadlines. **Loopback-only** listener: 28-bit v1 token-prefix authentication is not safe over a public network.
-- Durable raw spool with temp files, file/directory fsync, bounded size, singleton lock and crash recovery; ACK follows local persistence.
-- Live ANSI TUI with `--debug` on a terminal (alternate screen restored after shutdown); append-only safe logging without TTY.
-- Atomic JSON runtime state file; `status --json` reports local queue counts, shipping disabled.
-- Independent HTTP shipping client module with tests; not attached until transformer contract parity.
-- Experimental Linux/macOS AMD64 and ARM64 CI artifacts, not production releases.
-- PHP SDK Payload wire smoke, Go unit/race tests and 5 checked-in deterministic PHP-generated golden fixtures validated by CI.
+- Совместимый с PHP SDK TCP протокол v1, включая XXH128, PING, ACK и 1 MiB лимит; только localhost.
+- Конкурентный ingest, ограничения клиентов и таймауты. ACK только после durable записи.
+- Spool с атомарной записью, fsync, lock одного процесса, queue/processing/failed, bounded capacity и восстановлением после сбоя.
+- Go transformer (traces, spans, lifecycle, nested records, exceptions, truncation) с **9 PHP-generated golden fixtures** в CI.
+- Независимый HTTP worker: Bearer token, 202, 429/5xx, Retry-After, backoff+jitter, dead-letter и сохранение outbound payload между попытками.
+- Периодические heartbeat, JSON runtime state, `status --json/--strict`, интерактивный `--debug` TUI и безопасные headless логи.
+- GitHub Actions: Go race/integration tests, PHP SDK PHPUnit, golden-drift gate, Linux/macOS × AMD64/ARM64. Бинарники публикуются при release tag.
+- systemd unit, установщик с SHA256, инструкции для Sail.
 
-## NOT implemented (do not switch real applications)
-
-- Full `TraceBatchTransformer.php` golden fixture parity and server-side HTTP E2E.
-- Active shipping worker, durable retries/dead-letter and integration with transformed payloads.
-- Full PHP `dozor:status` parity, production systemd/Sail deployment, baseline benchmarks.
-
-**Go currently stores raw records, not valid Dozor Server v1 HTTP payloads. It never uploads them.** Do not run on production monitoring traffic.
-
-## Development-only smoke
+## Локальная разработка
 
 ```bash
 cd runtime/go
 go test -race ./...
 go build -o ./dozor-agent ./cmd/dozor-agent
 
-export DOZOR_TEST_TOKEN='dev-only-secret'
-export DOZOR_AGENT_TOKEN_HASH="$(php -r 'echo substr(hash("xxh128", getenv("DOZOR_TEST_TOKEN")), 0, 7);')"
+export DOZOR_TOKEN='example-app-token'
+export DOZOR_APP_NAME='my-laravel-app'
+export DOZOR_ENV=local
+export DOZOR_SERVER=local-dev
+export DOZOR_INGEST_URI='127.0.0.1:4815'
+export DOZOR_HOSTED_INGEST_URL='http://host.docker.internal:82/api/v1/ingest'
 export DOZOR_GO_SPOOL_PATH="$(mktemp -d)"
-export DOZOR_INGEST_URI='127.0.0.1:4816'
-./dozor-agent --ingest-only --debug
-# Other terminal, from repository root:
-php runtime/go/tests/php_client.php
+export DOZOR_AGENT_STATE_PATH="$(mktemp -d)/runtime-state.json"
+
+./dozor-agent --debug
 ```
 
-Keep experimental spool separate from `DOZOR_AGENT_SPOOL_PATH`. Do not start PHP/Go agents on the same TCP port. PHP daemon remains the production fallback.
+`DOZOR_HOSTED_INGEST_URL` выше — **пример для Sail**, когда Dozor Server запущен на хосте. Для приложения на том же хосте укажите реальный URL сервера Dozor. Секреты только через environment-файл с ограниченными правами.
 
-Next: implement Go transformer parity against the checked-in fixtures under `runtime/go/testdata/golden/`, broaden fixtures to additional edge cases, and validate PHP SDK → Go → Dozor Server end-to-end. Only then enable shipping and production rollout.
+По умолчанию запускается полноценный ingest + shipping. Режим `--ingest-only` полезен для контрактных тестов, но **не отправляет события на сервер**. Для TUI требуется интерактивный терминал; без TTY `--debug` показывает строчные логи.
+
+```bash
+./dozor-agent status --json
+./dozor-agent status --strict
+./dozor-agent --version
+```
+
+PHP интеграция **не переписывалась**. `php artisan dozor:status --json/--strict` продолжает работать через TCP PING и общую runtime-state JSON. `php artisan dozor:agent` остаётся legacy PHP daemon для отладки/отката, но не должен запускаться вместе с Go на одном порту.
+
+## Развёртывание
+
+См. [deploy/README.md](deploy/README.md) (systemd, Sail, права на токен, путь spool и rollback), [benchmarks/README.md](benchmarks/README.md) и [MIGRATION_CHECKLIST.md](MIGRATION_CHECKLIST.md).
+
+## Корректность и ограничения
+
+Подтверждение `2:OK` означает только **надёжную локальную запись**. HTTP `202` означает приём сервером, не финальную обработку. Доставка **at-least-once**, не exactly-once; дедупликация выполняется принимающим Dozor Server.
+
+Функциональная совместимость трансформации подтверждена дифференциальными тестами для девяти сценариев. Это не доказательство полной эквивалентности всех редких комбинаций 1500+ строк PHP transformer. Отдельная проверка Laravel сервера находится в `pepperfm/dozor/tests/Feature/Api/IngestV1Test.php`. Численные результаты CPU/RSS и latency baseline не выдумываем: для них есть воспроизводимые тесты, но измерение на одинаковом оборудовании остаётся отдельной задачей.

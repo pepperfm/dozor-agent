@@ -16,9 +16,11 @@ DOZOR_HOSTED_INGEST_URL=https://dozor.example.com/api/v1/ingest
 DOZOR_ENV=production
 ```
 
-Запуск локального агента: `php artisan dozor:agent` (на production держать под systemd). Встроенный адрес TCP `127.0.0.1:4815` доступен только локально, удалённый адрес — это **HTTPS ingest URL**, не локальный сокет.
+Основной агент теперь запускается как **Go-бинарник** (`dozor-agent`, под systemd или внутри Sail). Тот же Laravel PHP SDK продолжает собирать телеметрию и отправлять её на локальный TCP `127.0.0.1:4815`. Команда `php artisan dozor:agent` остаётся прежним PHP daemon для отладки и отката. Подробности: [Go runtime](runtime/go/README.md) и [deployment](runtime/go/deploy/README.md).
 
 ### Live debug TUI
+
+Для Go daemon используйте `dozor-agent --debug`; он показывает статус приёма, spool и доставки и восстанавливает терминал после Ctrl+C. Ниже описан legacy PHP debug-режим.
 
 ```bash
 php artisan dozor:agent --debug

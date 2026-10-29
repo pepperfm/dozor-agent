@@ -1,17 +1,23 @@
-# PHP → Go migration checklist
+# PHP → Go: актуальный checklist (2026-10-29)
 
-Baseline: `dozor-agent` master at `b0f17f47` (2026-10-29). PHP SDK and daemon remain the production path until complete parity.
+Исходная ревизия PHP daemon: `b0f17f47`. Реализованный Go daemon запускается как основной агент; старый PHP daemon оставлен для обратной совместимости.
 
-| Stage | Status | Evidence / remaining gate |
+| Этап | Статус | Проверки и ограничения |
 |---|---|---|
-| A — compatibility contracts | PARTIAL | PHP v1 framing tests, real Payload smoke and 5 deterministic PHP-generated golden fixtures enforced in CI. More edge fixtures and server validation pending |
-| B — concurrent TCP ingest | IMPLEMENTED (experimental) | bounded goroutines, deadlines, errors and concurrent-client test |
-| C — durable spool | PARTIAL | tempfile + file/directory fsync, lock, capacity, recovery test. Crash-injection / disk-full tests pending |
-| D — Go transformer | NOT STARTED | PHP source is 1500+ lines; 5 PHP goldens now block semantic drift; Go implementation and differential tests required |
-| E — asynchronous shipping | PARTIAL | independent HTTP client handles 202/429/5xx, Retry-After and retries; spool claim/recover/retry and background worker covered by tests, activation blocked on validated Go transformer |
-| F — metrics and TUI | PARTIAL | atomic runtime state file and interactive terminal dashboard, headless debug logging; full shipping views pending |
-| G — Laravel config/status | PARTIAL | v1 wire contract and optional DOZOR_AGENT_STATE_PATH. Manual token hash required |
-| H — builds/deployment | PARTIAL | four CI cross-builds. Production systemd/Sail deliberately deferred |
-| I — test/benchmark rollout | PARTIAL | Go unit/race tests, PHP Payload smoke, HTTP mock tests, PHP golden fixture drift gate. Server E2E and measured baseline pending |
+| A — контракт v1 и fixtures | ✅ | Настоящий PHP Payload smoke, **9 PHP-generated golden fixtures**, golden-drift gate |
+| B — конкурентный TCP ingest | ✅ | Bounded goroutines, read deadlines, localhost, ошибки при перегрузке, корректный 2:OK/5:ER |
+| C — durable spool | ✅ / fault injection отдельно | temp+rename, fsync файла/каталога, capacity, singleton flock, recovery, processing, failed |
+| D — Go transformer | ✅ 9 сценариев | Точное семантическое сравнение с PHP эталонами, включая N+1, lifecycle и truncation. Дополнительные edge-cases возможны |
+| E — shipping worker | ✅ | Отдельная горутина, HTTP 202, 429/5xx, Retry-After, exponential backoff, jitter, retries, неизменность sent_at |
+| F — metrics и debug TUI | ✅ | TTY TUI, headless logging, атомарный runtime state, очередь/ошибки/uptime/доставка |
+| G — PHP SDK и конфигурация | ✅ | PHP instrumentation без breaking changes, автоматический XXH128 из DOZOR_TOKEN, status --json/--strict |
+| H — бинарники, systemd, Sail | ✅ / release tag отдельно | CI cross-build 4 платформ, release pipeline с checksum, unit, secure installer, инструкция Sail |
+| I — E2E и нагрузка | Частично | Go TCP→spool→transform→HTTP 202 E2E + Laravel серверный тест; PHP/Go p50/p95/p99 benchmark harness. Фактические baseline CPU/RSS и реальный deployed Dozor Server E2E ещё не измерены |
 
-Safety: keep `--ingest-only` mandatory until outbound payload parity, use dedicated `DOZOR_GO_SPOOL_PATH`, loopback-only v1, and never claim exactly-once network delivery. ACK means durable local write only. PHP instrumentation and server contracts are untouched.
+## Правила доставки
+
+- `2:OK` только после гарантированного локального fsync, при заполнении/записи с ошибкой — `5:ER`.
+- `DOZOR_TOKEN` обязателен для remote shipping; Go вычисляет PHP `substr(hash('xxh128', $token), 0, 7)`.
+- TCP v1 только на loopback: короткий hash не должен использоваться как аутентификация на публичном интерфейсе.
+- Не запускать Go и PHP daemon одновременно на одном порту; отдельные spool-директории или гарантированное осушение очереди перед откатом.
+- ACK не гарантирует моментальной видимости данных на панели: at-least-once + downstream async processing.
