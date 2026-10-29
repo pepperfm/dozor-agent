@@ -2,6 +2,7 @@
 """Minimal CI-only HTTP receiver for PHP Payload -> Go agent -> HTTP 202."""
 import json
 import os
+import re
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 class Handler(BaseHTTPRequestHandler):
@@ -20,6 +21,13 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError("unexpected payload")
             if not data.get("traces") or not data["traces"][0].get("spans"):
                 raise ValueError("no transformed traces")
+            ulid = re.compile(r"^[0-7][0-9A-HJKMNP-TV-Z]{25}$")
+            for trace in data["traces"]:
+                if not ulid.fullmatch(trace["id"]):
+                    raise ValueError("invalid trace ULID")
+                for span in trace["spans"]:
+                    if not ulid.fullmatch(span["id"]):
+                        raise ValueError("invalid span ULID")
             with open(os.environ["DOZOR_RECEIVED_FILE"], "w", encoding="utf-8") as f:
                 json.dump(data, f)
         except (KeyError, ValueError, TypeError, json.JSONDecodeError) as e:

@@ -180,7 +180,7 @@ func randomULID() string {
 		now >>= 8
 	}
 	// Encode 128-bit binary value as base32 without padding.
-	bits := 0
+	bits := 2 // ULID is 128 bits, but its 26 Crockford symbols encode 130 bits.
 	value := uint64(0)
 	out := make([]byte, 0, 26)
 	for _, part := range b {
