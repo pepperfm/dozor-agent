@@ -1,0 +1,76 @@
+name: Go agent migration
+
+on:
+  push:
+    paths:
+      - 'runtime/go/**'
+      - '.github/workflows/go-agent.yml'
+      - 'src/Payload.php'
+      - 'src/PayloadType.php'
+  pull_request:
+    paths:
+      - 'runtime/go/**'
+      - '.github/workflows/go-agent.yml'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.x'
+      - name: Test Go packages with race detector
+        working-directory: runtime/go
+        run: go test -race -count=1 ./...
+      - name: Build local contract binary
+        working-directory: runtime/go
+        run: CGO_ENABLED=0 go build -trimpath -o /tmp/dozor-agent ./cmd/dozor-agent
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+      - name: Exercise existing PHP Payload against Go receiver
+        shell: bash
+        run: |
+          set -euo pipefail
+          export DOZOR_TEST_TOKEN="dozor-go-contract-fixture"
+          export DOZOR_AGENT_TOKEN_HASH="$(php -r 'echo substr(hash("xxh128", getenv("DOZOR_TEST_TOKEN")), 0, 7);')"
+          export DOZOR_GO_SPOOL_PATH="$RUNNER_TEMP/dozor-go-spool"
+          export DOZOR_INGEST_URI="127.0.0.1:4816"
+          /tmp/dozor-agent --ingest-only > "$RUNNER_TEMP/dozor-agent.log" 2>&1 &
+          agent_pid=$!
+          trap 'kill "$agent_pid" 2>/dev/null || true' EXIT
+          sleep 1
+          php runtime/go/tests/php_client.php
+          test "$(find "$DOZOR_GO_SPOOL_PATH/queue" -name '*.json' | wc -l)" -ge 1
+
+  cross-build:
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: linux, arch: amd64}
+          - {os: linux, arch: arm64}
+          - {os: darwin, arch: amd64}
+          - {os: darwin, arch: arm64}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.x'
+      - name: Cross-compile experimental CLI (not a production release)
+        working-directory: runtime/go
+        env:
+          CGO_ENABLED: '0'
+          GOOS: ${{ matrix.os }}
+          GOARCH: ${{ matrix.arch }}
+        run: |
+          mkdir -p dist
+          go build -trimpath -ldflags="-s -w" -o "dist/dozor-agent-${GOOS}-${GOARCH}" ./cmd/dozor-agent
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dozor-agent-experimental-${{ matrix.os }}-${{ matrix.arch }}
+          path: runtime/go/dist/dozor-agent-*
+          retention-days: 7
