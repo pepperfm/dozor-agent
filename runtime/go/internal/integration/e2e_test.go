@@ -8,6 +8,8 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -148,4 +150,102 @@ func TestSpoolCapacityRejectsInsteadOfFalseACK(t *testing.T) {
 	}
 	cancel()
 	wg.Wait()
+}
+
+// A remote HTTP handler which has not responded must never hold the local TCP
+// listener. The second durable ACK arrives before the receiver is released.
+func TestSlowHTTPSReceiverDoesNotBlockLocalIngest(t *testing.T) {
+	const token = "slow-receiver-contract"
+	entered := make(chan struct{}, 1)
+	release := make(chan struct{})
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case entered <- struct{}{}:
+		default:
+		}
+		<-release
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer remote.Close()
+	defer close(release)
+
+	q, err := spool.Open(t.TempDir(), 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer q.Close()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	server := &ingest.Server{Listener: ln, Queue: q, TokenHash: protocol.TokenHash(token), MaxClients: 8}
+	serverDone := make(chan error, 1)
+	go func() { serverDone <- server.Serve(ctx) }()
+	worker := &shipping.Worker{
+		Queue: q,
+		Transport: &shipping.Client{URL: remote.URL, Token: token, Attempts: 1, HTTP: &http.Client{Timeout: 5 * time.Second}},
+		Transformer: &transform.Transformer{AppName: "app", AppToken: token, Environment: "test", ServerName: "node"},
+		PollInterval: time.Millisecond,
+	}
+	workerDone := make(chan error, 1)
+	go func() { workerDone <- worker.Run(ctx) }()
+	const records = `[{"type":"request","trace_id":"01J00000000000000000000991","record_id":"01J00000000000000000000992","payload":{"duration_ms":4}}]`
+	if response := send(t, ln.Addr().String(), token, records); response != "2:OK" {
+		t.Fatalf("initial ACK: %s", response)
+	}
+	select {
+	case <-entered:
+	case <-time.After(3 * time.Second):
+		t.Fatal("shipping worker did not start HTTP upload")
+	}
+
+	start := time.Now()
+	if response := send(t, ln.Addr().String(), token, records); response != "2:OK" {
+		t.Fatalf("second ACK blocked by remote receiver: %s", response)
+	}
+	if time.Since(start) > 2*time.Second {
+		t.Fatal("local ACK waited for remote receiver")
+	}
+	cancel()
+	if err := <-serverDone; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-workerDone; err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Disk errors must become 5:ER. Returning a successful ACK would cause
+// the PHP SDK to discard records that the daemon never persisted.
+func TestDiskWriteFailureRejectsWithProtocolError(t *testing.T) {
+	directory := t.TempDir()
+	q, err := spool.Open(directory, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer q.Close()
+	if err := os.RemoveAll(filepath.Join(directory, "queue")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, "queue"), []byte("not a directory"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	server := &ingest.Server{Listener: ln, Queue: q, TokenHash: protocol.TokenHash("disk-failure"), MaxClients: 2}
+	done := make(chan error, 1)
+	go func() { done <- server.Serve(ctx) }()
+	const records = `[{"type":"request","trace_id":"01J00000000000000000000999","payload":{"duration_ms":1}}]`
+	if response := send(t, ln.Addr().String(), "disk-failure", records); response != "5:ER" {
+		t.Fatalf("lost telemetry was incorrectly acknowledged: %s", response)
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
 }
