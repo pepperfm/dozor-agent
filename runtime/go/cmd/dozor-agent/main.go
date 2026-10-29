@@ -18,6 +18,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/pepperfm/dozor-agent/runtime/go/internal/envfile"
 	"github.com/pepperfm/dozor-agent/runtime/go/internal/ingest"
 	"github.com/pepperfm/dozor-agent/runtime/go/internal/protocol"
 	"github.com/pepperfm/dozor-agent/runtime/go/internal/shipping"
@@ -54,10 +55,20 @@ func main() {
 	}
 }
 func run() error {
+	// Laravel's .env is data, not a shell script. Load only Dozor and
+	// application metadata; explicit process environment always wins.
+	if path, found, err := envfile.FromArgs(os.Args[1:]); err != nil {
+		return err
+	} else if found {
+		if err := envfile.LoadMissing(path); err != nil {
+			return fmt.Errorf("load agent env file: %w", err)
+		}
+	}
 	if len(os.Args) > 1 && os.Args[1] == "status" {
 		return status(os.Args[2:])
 	}
 	fs := flag.NewFlagSet("dozor-agent", flag.ContinueOnError)
+	fs.String("env-file", "", "read Dozor variables from Laravel .env (no shell execution)")
 	listen := fs.String("listen", env("DOZOR_INGEST_URI", "127.0.0.1:4815"), "local TCP listener")
 	path := fs.String("spool", env("DOZOR_GO_SPOOL_PATH", env("DOZOR_AGENT_SPOOL_PATH", "./spool")), "durable spool directory")
 	statePath := fs.String("state-path", env("DOZOR_AGENT_STATE_PATH", "./runtime-state.json"), "runtime state JSON")
@@ -290,6 +301,7 @@ func sendHeartbeat(ctx context.Context, q *spool.Queue, tr *transform.Transforme
 }
 func status(arguments []string) error {
 	fs := flag.NewFlagSet("status", flag.ContinueOnError)
+	fs.String("env-file", "", "read Dozor variables from Laravel .env")
 	jsonFlag := fs.Bool("json", false, "machine-readable status")
 	strict := fs.Bool("strict", false, "nonzero exit unless agent and remote shipping are ready")
 	path := fs.String("spool", env("DOZOR_GO_SPOOL_PATH", env("DOZOR_AGENT_SPOOL_PATH", "./spool")), "spool directory")
