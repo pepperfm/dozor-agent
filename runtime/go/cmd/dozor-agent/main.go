@@ -10,10 +10,12 @@ import(
  "os"
  "os/signal"
  "strconv"
+ "sync"
  "syscall"
  "time"
  "github.com/pepperfm/dozor-agent/runtime/go/internal/ingest"
  "github.com/pepperfm/dozor-agent/runtime/go/internal/spool"
+ "github.com/pepperfm/dozor-agent/runtime/go/internal/state"
 )
 const version="0.1.0-migration"
 func env(key,fallback string)string{if v:=os.Getenv(key);v!=""{return v};return fallback}
@@ -30,6 +32,7 @@ func run()error{
  listen:=fs.String("listen",env("DOZOR_INGEST_URI","127.0.0.1:4815"),"loopback listen address")
  path:=fs.String("spool",env("DOZOR_GO_SPOOL_PATH","./dozor-go-spool"),"durable raw records directory")
  hash:=fs.String("token-hash",env("DOZOR_AGENT_TOKEN_HASH",""),"PHP xxh128 token hash prefix")
+ statePath:=fs.String("state-path",env("DOZOR_AGENT_STATE_PATH","./runtime-state.json"),"PHP-compatible runtime status path")
  max:=fs.Int("max-batches",envInt("DOZOR_AGENT_SHIP_MAX_SPOOL_BATCHES",500),"spool capacity")
  debug:=fs.Bool("debug",false,"append-only safe debug log")
  ver:=fs.Bool("version",false,"show version")
@@ -39,13 +42,26 @@ func run()error{
  if !*ingestOnly{return errors.New("Go transformer and shipping are not validated: --ingest-only is required; do not use for production")}
  if *hash==""||len(*hash)!=7{return errors.New("DOZOR_AGENT_TOKEN_HASH must contain the 7-character PHP xxh128 prefix")}
  host,_,err:=net.SplitHostPort(*listen);if err!=nil{return err}
- if host!="127.0.0.1"&&host!="::1"&&host!="localhost"{
-  return errors.New("v1 short token-hash protocol must bind loopback only")
- }
+ if host!="127.0.0.1"&&host!="::1"&&host!="localhost"{return errors.New("v1 short token-hash protocol must bind loopback only")}
  q,err:=spool.Open(*path,*max);if err!=nil{return err};defer q.Close()
  ln,err:=net.Listen("tcp",*listen);if err!=nil{return err}
  ctx,stop:=signal.NotifyContext(context.Background(),syscall.SIGTERM,os.Interrupt);defer stop()
+ writer:=&state.Writer{Path:*statePath}
  srv:=&ingest.Server{Listener:ln,Queue:q,TokenHash:*hash,MaxClients:32,Debug:*debug}
+ stateCtx,stateCancel:=context.WithCancel(context.Background())
+ var stateWG sync.WaitGroup
+ persist:=func(status string){
+  queued,failed,_:=q.Count()
+  if err:=writer.Mark(status,*listen,queued,failed,srv.Received.Load(),srv.Rejected.Load());err!=nil{log.Printf("state persistence failed: %T",err)}
+ }
+ persist("running")
+ stateWG.Add(1)
+ go func(){
+  defer stateWG.Done()
+  ticker:=time.NewTicker(time.Second);defer ticker.Stop()
+  for{select{case <-stateCtx.Done():return;case <-ticker.C:persist("running")}}
+ }()
+ defer func(){stateCancel();stateWG.Wait();persist("stopped")}()
  if *debug{
   log.Printf("ingest-only listener=%s spool=%s",ln.Addr(),*path)
   done:=make(chan struct{})
