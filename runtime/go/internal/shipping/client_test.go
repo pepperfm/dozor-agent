@@ -114,3 +114,43 @@ func TestLongRetryAfterYieldsToDurableWorker(t *testing.T) {
 		t.Fatalf("unbounded Retry-After: %v", got)
 	}
 }
+
+func TestHTTPSShippingWithValidatedTLS(t *testing.T) {
+	var received atomic.Bool
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.TLS == nil || r.Header.Get("Authorization") != "Bearer tls-secret" {
+			t.Errorf("expected authenticated TLS request")
+		}
+		received.Store(true)
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer server.Close()
+
+	client := Client{
+		URL: server.URL,
+		Token: "tls-secret",
+		HTTP: server.Client(), // Trust only this test server's certificate.
+		Attempts: 1,
+	}
+	if err := client.Upload(context.Background(), json.RawMessage(`{"v":1,"traces":[]}`)); err != nil {
+		t.Fatal(err)
+	}
+	if !received.Load() {
+		t.Fatal("TLS receiver did not receive payload")
+	}
+}
+
+func TestHTTPSRejectsUntrustedCertificate(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer server.Close()
+
+	// Production defaults must verify TLS chains; a local self-signed
+	// certificate is rejected unless explicitly trusted in the client.
+	client := Client{URL: server.URL, Token: "tls-secret", Attempts: 1}
+	err := client.Upload(context.Background(), json.RawMessage(`{"v":1}`))
+	if err == nil {
+		t.Fatal("untrusted TLS certificate was accepted")
+	}
+}
