@@ -23,7 +23,7 @@ function candidateFixture() {
     return { name, bytes, digest: checksum(bytes) }
   })
   writeFileSync(join(dir, 'SHA256SUMS'), entries.map(x => `${x.digest}  ${x.name}\n`).join(''))
-  return { dir, entries, candidate: loadCandidate(dir, sha) }
+  return { dir, entries, candidate: loadCandidate(dir, sha, 1700000000) }
 }
 
 function fakeStorage() {
@@ -32,10 +32,11 @@ function fakeStorage() {
   return {
     records, objects,
     async head(name) { return objects.get(name) ?? null },
+    async read(name) { return objects.get(name)?.bytes ?? null },
     async put(name, path, metadata) {
       records.push('put:' + name)
       objects.set(name, { Metadata: { sha256: metadata.sha256 },
-        ContentLength: readFileSync(path).length, ...metadata })
+        ContentLength: readFileSync(path).length, bytes: readFileSync(path), ...metadata })
     },
   }
 }
@@ -48,12 +49,12 @@ it('produces pinned Linux artifacts and the Pechka settings from the same commit
     `${sha}/SHA256SUMS`, `${sha}/manifest.json`,
   ])
   const config = configForPechka(candidate)
-  expect(config).toContain(`PECHKA_DOZOR_SDK_SHA=${sha}`)
-  expect(config).toContain(`PECHKA_DOZOR_AGENT_AMD64_SHA256=${entries[0].digest}`)
-  expect(config).toContain(`PECHKA_DOZOR_AGENT_ARM64_SHA256=${entries[1].digest}`)
-  expect(config).toContain(distribution.publicUrl + sha)
+  expect(config).toContain('PECHKA_DOZOR_AGENT_MANIFEST_URL=' + distribution.publicUrl + 'latest.json')
+  expect(config).not.toContain('PECHKA_DOZOR_SDK_SHA=')
   const manifest = JSON.parse(readFileSync(join(candidate.files[0].path, '../manifest.json'), 'utf8'))
   expect(manifest.source_commit).toBe(sha)
+  expect(manifest.source_committed_at).toBe(1700000000)
+  expect(manifest.binaries['dozor-agent-linux-amd64'].sha256).toBe(entries[0].digest)
 })
 
 it('refuses wrong and duplicate checksum manifests before uploading', () => {
@@ -76,7 +77,12 @@ it('verifies public artifacts before uploading commit manifest', async () => {
     'put:' + candidate.files[1].name, 'verify:' + candidate.files[1].name,
     'put:' + candidate.files[2].name, 'verify:' + candidate.files[2].name,
     'put:' + candidate.files[3].name, 'verify:' + candidate.files[3].name,
+    'put:dozor-agent-linux-amd64', 'verify:dozor-agent-linux-amd64',
+    'put:dozor-agent-linux-arm64', 'verify:dozor-agent-linux-arm64',
+    'put:latest.json', 'verify:latest.json',
   ])
+  expect(storage.objects.get('latest.json').cacheControl).toContain('no-cache')
+  expect(storage.objects.get('dozor-agent-linux-amd64').cacheControl).toContain('no-cache')
   expect(storage.objects.get(candidate.files[0].name).cacheControl).toContain('immutable')
 })
 
@@ -87,6 +93,7 @@ it('aborts before publishing the commit manifest after failed public verificatio
     if (file.name.endsWith('dozor-agent-linux-arm64')) throw new Error('public corrupt')
   })).rejects.toThrow('public corrupt')
   expect(storage.objects.has(candidate.files.at(-1).name)).toBeFalse()
+  expect(storage.objects.has('latest.json')).toBeFalse()
 })
 
 it('is idempotent, and rejects content conflicts at a pinned URL', async () => {
@@ -95,7 +102,12 @@ it('is idempotent, and rejects content conflicts at a pinned URL', async () => {
   await publishCandidate(candidate, storage, async () => {})
   storage.records.length = 0
   await publishCandidate(candidate, storage, async () => {})
-  expect(storage.records).toEqual([])
+  expect(storage.records).toEqual([
+    'put:dozor-agent-linux-amd64',
+    'put:dozor-agent-linux-arm64',
+    'put:latest.json',
+  ])
+  storage.records.length = 0
   storage.objects.get(candidate.files[0].name).Metadata.sha256 = 'different'
   await expect(publishCandidate(candidate, storage, async () => {})).rejects.toThrow('different content')
   expect(storage.records).toEqual([])
@@ -135,4 +147,19 @@ it('uses SPP path-style S3 signing and does not disclose credentials', async () 
   expect(signed[0].url.pathname).toBe(
     '/' + distribution.bucket + '/' + distribution.prefix + 'artifact')
   expect(signed[0].url.searchParams.get('X-Amz-Signature')).toBeTruthy()
+})
+
+it('refuses older or conflicting commits without mutating stable feed', async () => {
+  const { candidate } = candidateFixture()
+  const storage = fakeStorage()
+  await publishCandidate(candidate, storage, async () => {})
+
+  storage.records.length = 0
+  const stale = { ...candidate, committedAt: 1699999999 }
+  await expect(publishCandidate(stale, storage, async () => {})).rejects.toThrow('newer')
+  expect(storage.records).toEqual([])
+
+  const conflicting = { ...candidate, sha: 'b'.repeat(40) }
+  await expect(publishCandidate(conflicting, storage, async () => {})).rejects.toThrow('conflicting')
+  expect(storage.records).toEqual([])
 })
