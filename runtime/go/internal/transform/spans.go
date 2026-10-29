@@ -115,7 +115,7 @@ func offsetMs(record obj,startedAt string)int{
   return max(0,rounded(float64(t.UnixMilli()-start.UnixMilli())))
  }
  if f,ok:=numeric(get(record,"timestamp"));ok{
-  return max(0,rounded(f*1000)-start.UnixMilliInt())
+  return max(0,rounded(f*1000)-int(start.UnixMilli()))
  }
  return 0
 }
