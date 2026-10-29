@@ -16,6 +16,7 @@ use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Queue\Events\JobFailed;
 use Illuminate\Queue\Events\JobProcessed;
 use Illuminate\Queue\Events\JobProcessing;
+use Illuminate\Queue\Events\Looping;
 use RuntimeException;
 
 final class WatchersFailSafeTest extends TestCase
@@ -24,12 +25,14 @@ final class WatchersFailSafeTest extends TestCase
     {
         $core = $this->createStub(DozorContract::class);
         $core->method('recordQuery')->willThrowException(new RuntimeException('recordQuery failed'));
+        $core->method('recordQueueLoop')->willThrowException(new RuntimeException('queue loop failed'));
         $core->method('recordJobStarted')->willThrowException(new RuntimeException('recordJobStarted failed'));
         $core->method('recordJobFinished')->willThrowException(new RuntimeException('recordJobFinished failed'));
         $core->method('recordCacheEvent')->willThrowException(new RuntimeException('recordCacheEvent failed'));
 
         $queryWatcher = new QueryWatcher($core);
         $queueWatcher = new QueueWatcher($core);
+        $queueWatcher->looping(new Looping('redis', 'default'));
         $cacheWatcher = new CacheWatcher($core);
 
         $queryWatcher($this->createStub(QueryExecuted::class));
