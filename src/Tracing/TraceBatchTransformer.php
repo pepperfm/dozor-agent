@@ -994,7 +994,8 @@ final class TraceBatchTransformer
         if (is_array($rootPayload)) {
             $duration = $this->resolveNumeric($rootPayload, ['duration_ms', 'time_ms'], -1);
             if ($duration >= 0) {
-                return max(1, (int) round($duration));
+                // An explicitly measured 0ms event must not acquire synthetic latency.
+                return max(0, (int) round($duration));
             }
         }
 
