@@ -20,6 +20,9 @@ const enter = "\x1b[?1049h\x1b[?25l"
 const exit = "\x1b[?25h\x1b[?1049l\x1b[0m"
 
 func IsTerminal(f *os.File) bool {
+	if os.Getenv("TERM") == "dumb" || os.Getenv("CI") == "true" {
+		return false
+	}
 	info, err := f.Stat()
 	return err == nil && info.Mode()&os.ModeCharDevice != 0
 }

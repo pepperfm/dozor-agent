@@ -268,7 +268,7 @@ func sendHeartbeat(ctx context.Context, q *spool.Queue, tr *transform.Transforme
 func status(arguments []string) error {
 	fs := flag.NewFlagSet("status", flag.ContinueOnError)
 	jsonFlag := fs.Bool("json", false, "machine-readable status")
-	strict := fs.Bool("strict", false, "nonzero exit when agent unreachable")
+	strict := fs.Bool("strict", false, "nonzero exit unless agent and remote shipping are ready")
 	path := fs.String("spool", env("DOZOR_GO_SPOOL_PATH", env("DOZOR_AGENT_SPOOL_PATH", "./spool")), "spool directory")
 	statePath := fs.String("state-path", env("DOZOR_AGENT_STATE_PATH", "./runtime-state.json"), "state JSON")
 	listen := fs.String("listen", env("DOZOR_INGEST_URI", "127.0.0.1:4815"), "TCP listener")
@@ -311,6 +311,9 @@ func status(arguments []string) error {
 	}
 	if *strict && !reachable {
 		return errors.New("local agent not reachable")
+	}
+	if *strict && !snapshot.Context.ShipperEnabled {
+		return errors.New("remote shipping is disabled")
 	}
 	return nil
 }
