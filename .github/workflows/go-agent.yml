@@ -2,6 +2,10 @@ name: Go agent migration
 
 on:
   push:
+    branches:
+      - master
+    tags:
+      - 'v*'
     paths:
       - 'runtime/go/**'
       - '.github/workflows/go-agent.yml'
@@ -90,3 +94,26 @@ jobs:
           name: dozor-agent-experimental-${{ matrix.os }}-${{ matrix.arch }}
           path: runtime/go/dist/dozor-agent-*
           retention-days: 7
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [test, php-golden-fixtures, cross-build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: dozor-agent-experimental-*
+          path: dist
+          merge-multiple: true
+      - name: Generate SHA256 checksums
+        run: |
+          cd dist
+          sha256sum dozor-agent-* > SHA256SUMS
+          cat SHA256SUMS
+      - name: Publish Go binaries with verified checksums
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
