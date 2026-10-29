@@ -425,6 +425,7 @@ final class TraceBatchTransformer
                 'started_at' => $startedAt,
                 'status' => $rootType === 'job' ? Arr::get($payload, 'status') : null,
                 'attempts' => $rootType === 'job' ? Arr::get($payload, 'attempts') : null,
+                'worker' => $rootType === 'job' ? Arr::get($payload, 'worker') : null,
                 'exit_code' => $rootType === 'command' ? Arr::get($payload, 'details.exit_code') : null,
             ], static fn(mixed $value): bool => $value !== null),
         ];
