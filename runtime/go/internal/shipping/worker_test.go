@@ -110,8 +110,8 @@ func TestWorkerHandlesOtherBatchesDuringRetryAfter(t *testing.T) {
 	defer cancel()
 	worker := &Worker{
 		Queue: q, Transformer: &fixedTransformer{},
-		Transport: &Client{URL: server.URL, Token: "secret", Attempts: 3, MaxBackoff: 10*time.Millisecond},
-		PollInterval: time.Millisecond, RetryCap: 10*time.Millisecond,
+		Transport:    &Client{URL: server.URL, Token: "secret", Attempts: 3, MaxBackoff: 10 * time.Millisecond},
+		PollInterval: time.Millisecond, RetryCap: 10 * time.Millisecond,
 		OnEvent: func(kind string) {
 			if kind == "uploaded-202" {
 				cancel()
