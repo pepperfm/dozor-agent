@@ -18,7 +18,8 @@ const sha256 = bytes => createHash('sha256').update(bytes).digest('hex')
 const commitPattern = /^[a-f0-9]{40}$/
 const binaries = ['dozor-agent-linux-amd64', 'dozor-agent-linux-arm64']
 
-export function loadCandidate(dist, sha) {
+export function loadCandidate(dist, sha, committedAt = 0) {
+  if (!Number.isSafeInteger(committedAt) || committedAt < 0) throw new Error('Invalid source commit timestamp.')
   if (!commitPattern.test(sha ?? '')) throw new Error('A 40-character source commit SHA is required.')
   const checksumBytes = readFileSync(join(dist, 'SHA256SUMS'))
   const checksums = new Map()
@@ -43,6 +44,7 @@ export function loadCandidate(dist, sha) {
   const manifestPath = join(dist, 'manifest.json')
   const manifestBytes = Buffer.from(JSON.stringify({
     source_commit: sha,
+    source_committed_at: committedAt,
     binaries: Object.fromEntries(files.slice(0, 2).map(file => [
       file.name.split('/').at(-1), { sha256: file.digest, size: file.bytes.length,
         url: new URL(file.name, distribution.publicUrl).href },
@@ -52,7 +54,7 @@ export function loadCandidate(dist, sha) {
   files.push({ name: `${sha}/manifest.json`, path: manifestPath,
     bytes: manifestBytes, digest: sha256(manifestBytes), immutable: true, manifest: true })
 
-  return { sha, files }
+  return { sha, files, committedAt }
 }
 
 export async function verifyPublicFile(file, fetcher = fetch) {
@@ -66,6 +68,21 @@ export async function verifyPublicFile(file, fetcher = fetch) {
 }
 
 export async function publishCandidate(candidate, storage, verify = verifyPublicFile) {
+  const previous = await storage.read('latest.json')
+  if (previous !== null) {
+    let manifest
+    try { manifest = JSON.parse(previous.toString('utf8')) } catch { throw new Error('Invalid latest.json in S3.') }
+    if (!commitPattern.test(manifest.source_commit) || !Number.isSafeInteger(manifest.source_committed_at)) {
+      throw new Error('Invalid latest.json revision metadata.')
+    }
+    if (manifest.source_committed_at > candidate.committedAt ||
+      (manifest.source_committed_at === candidate.committedAt && manifest.source_commit !== candidate.sha)) {
+      throw new Error('Refusing to replace a newer or conflicting published Dozor release.')
+    }
+  }
+
+  // Immutable, SHA-addressed objects are the installation source of truth.
+  // All updates to stable aliases happen after verified immutable uploads.
   for (const file of candidate.files) {
     const existing = await storage.head(file.name)
     if (existing !== null) {
@@ -79,9 +96,30 @@ export async function publishCandidate(candidate, storage, verify = verifyPublic
         contentType: file.manifest ? 'application/json' : 'application/octet-stream',
       })
     }
-    // Even if S3 HEAD matches a previous upload, verify the publicly served bytes.
     await verify(file)
   }
+
+  // Human-friendly stable SPP-style names. Never use them to install:
+  // the immutable manifest points to SHA-addressed binaries, avoiding
+  // race conditions while the aliases are being replaced.
+  for (const file of candidate.files.slice(0, 2)) {
+    const name = file.name.split('/').at(-1)
+    await storage.put(name, file.path, {
+      sha256: file.digest,
+      cacheControl: 'no-cache, max-age=0, must-revalidate',
+      contentType: 'application/octet-stream',
+    })
+    await verify({ ...file, name })
+  }
+
+  // Single final PUT switches the installation feed to this verified release.
+  const manifest = candidate.files.find(file => file.manifest)
+  await storage.put('latest.json', manifest.path, {
+    sha256: manifest.digest,
+    cacheControl: 'no-cache, max-age=0, must-revalidate',
+    contentType: 'application/json',
+  })
+  await verify({ ...manifest, name: 'latest.json' })
 }
 
 export function createStorage(env, _workspace, fetcher = fetch) {
@@ -139,16 +177,10 @@ export function createStorage(env, _workspace, fetcher = fetch) {
 }
 
 
-export function configForPechka(candidate) {
-  const digest = name => candidate.files.find(file => file.name.endsWith('/' + name))?.digest
-  const url = name => new URL(`${candidate.sha}/${name}`, distribution.publicUrl).href
+export function configForPechka() {
   return [
     'PECHKA_DOZOR_AGENT_FEATURE_ENABLED=true',
-    `PECHKA_DOZOR_AGENT_AMD64_URL=${url('dozor-agent-linux-amd64')}`,
-    `PECHKA_DOZOR_AGENT_AMD64_SHA256=${digest('dozor-agent-linux-amd64')}`,
-    `PECHKA_DOZOR_AGENT_ARM64_URL=${url('dozor-agent-linux-arm64')}`,
-    `PECHKA_DOZOR_AGENT_ARM64_SHA256=${digest('dozor-agent-linux-arm64')}`,
-    `PECHKA_DOZOR_SDK_SHA=${candidate.sha}`,
+    `PECHKA_DOZOR_AGENT_MANIFEST_URL=${distribution.publicUrl}latest.json`,
   ].join('\n')
 }
 
@@ -162,10 +194,12 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       console.log('Beget S3 read access verified.')
     } else {
       const dist = join(import.meta.dir, '../dist/pechka')
-      const candidate = loadCandidate(dist, sha)
+      const committedAt = Number(process.env.DOZOR_SOURCE_COMMIT_TS)
+      if (!Number.isSafeInteger(committedAt) || committedAt <= 0) throw new Error('DOZOR_SOURCE_COMMIT_TS is required.')
+      const candidate = loadCandidate(dist, sha, committedAt)
       await publishCandidate(candidate, storage)
-      const config = configForPechka(candidate)
-      console.log('Published and verified Go Agent on Beget S3. Use these values in Pechka .env:')
+      const config = configForPechka()
+      console.log('Published and verified Go Agent (stable URLs + latest.json) on Beget S3. Configure Pechka once:')
       console.log(config)
       if (process.env.GITHUB_STEP_SUMMARY) {
         appendFileSync(process.env.GITHUB_STEP_SUMMARY,

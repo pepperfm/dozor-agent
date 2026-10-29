@@ -106,17 +106,30 @@ Bun S3 publisher: path-style signed requests, проверка SHA-256, повт
 из SPP: для **локальной** публикации нужны локальные AWS-переменные.
 Не добавляйте credentials в файлы репозитория и Git.
 
-Бакет SPP тот же, префикс отдельный:
+Бакет SPP тот же, префикс отдельный. Два публичных имени стабильны,
+обновляются после проверки immutable-объектов; `latest.json` публикуется
+**последним**, и Печка использует именно его для выбора неподвижной версии:
+
 ```text
-https://s3.streams-panel.ru/dozor-agent/linux/<commit-sha>/dozor-agent-linux-amd64
-https://s3.streams-panel.ru/dozor-agent/linux/<commit-sha>/dozor-agent-linux-arm64
-https://s3.streams-panel.ru/dozor-agent/linux/<commit-sha>/SHA256SUMS
-https://s3.streams-panel.ru/dozor-agent/linux/<commit-sha>/manifest.json
+https://s3.streams-panel.ru/dozor-agent/linux/dozor-agent-linux-amd64
+https://s3.streams-panel.ru/dozor-agent/linux/dozor-agent-linux-arm64
+https://s3.streams-panel.ru/dozor-agent/linux/latest.json
 ```
-После завершения скрипт печатает настройки
-`PECHKA_DOZOR_AGENT_*_URL`, `*_SHA256` и `PECHKA_DOZOR_SDK_SHA`,
-привязанные к одному исходному SHA. Их нужно перенести в `.env` Печки;
-на сервере Go не компилируется.
+
+Внутри `latest.json` лежат SHA-256 и неизменяемые URL
+`<commit-sha>/dozor-agent-linux-*`. Печка получает оттуда и
+`source_commit` PHP SDK, так что **после каждого билда .env Печки менять
+не нужно**. Один раз установите:
+
+```dotenv
+PECHKA_DOZOR_AGENT_FEATURE_ENABLED=true
+PECHKA_DOZOR_AGENT_MANIFEST_URL=https://s3.streams-panel.ru/dozor-agent/linux/latest.json
+```
+
+Повторная публикация старого коммита не может откатить более новый feed.
+При каждой ручной операции «Перезапустить Dozor Agent» Печка сверит
+актуальный manifest и скачает immutable артефакт с проверкой SHA-256.
+**Автообновления работающих агентов без команды в UI нет.**
 
 Публикация выполняется **после** коммита: до коммита нет нового SHA
 для адреса артефакта. Из-за сетевых ошибок и необходимости секретов не

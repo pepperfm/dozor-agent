@@ -13,6 +13,7 @@ if [ -n "$(git -C "$root" status --porcelain)" ]; then
 fi
 
 export DOZOR_RELEASE_SHA="$(git -C "$root" rev-parse HEAD)"
+export DOZOR_SOURCE_COMMIT_TS="$(git -C "$root" show -s --format=%ct HEAD)"
 [ "$(git -C "$root" branch --show-current)" = "master" ] || {
   echo "Собирать S3 release можно только из master." >&2; exit 2
 }
