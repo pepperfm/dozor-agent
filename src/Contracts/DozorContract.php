@@ -10,6 +10,7 @@ use Illuminate\Http\Request;
 use Illuminate\Queue\Events\JobFailed;
 use Illuminate\Queue\Events\JobProcessed;
 use Illuminate\Queue\Events\JobProcessing;
+use Illuminate\Queue\Events\Looping;
 use Throwable;
 
 interface DozorContract
@@ -28,6 +29,8 @@ interface DozorContract
     public function recordQuery(QueryExecuted $event): void;
 
     public function recordJobStarted(JobProcessing $event): void;
+
+    public function recordQueueLoop(Looping $event): bool;
 
     public function recordJobFinished(JobProcessed|JobFailed $event): void;
 
