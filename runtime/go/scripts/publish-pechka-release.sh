@@ -24,4 +24,4 @@ git -C "$root" fetch origin master --quiet
 go test ./...
 bun test scripts/publish-s3.test.mjs
 bash scripts/build-pechka.sh dist/pechka
-bun scripts/publish-s3.mjs
+bun --env-file="$root/.env" scripts/publish-s3.mjs

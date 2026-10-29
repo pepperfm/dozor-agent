@@ -19,7 +19,7 @@ func TestReadLaravelEnvWithoutShellExecution(t *testing.T) {
 		"DOZOR_TOKEN='tok#en with spaces'",
 		"DOZOR_HOSTED_INGEST_URL=https://example.test/api/v1/ingest # comment",
 		"OTHER_SECRET=should-not-be-loaded",
-		"DOZOR_SERVER=\$(touch /tmp/this-is-data-not-shell)",
+		"DOZOR_SERVER=$(touch /tmp/this-is-data-not-shell)",
 	}, "\n")
 	if err := os.WriteFile(path, []byte(contents), 0600); err != nil {
 		t.Fatal(err)
@@ -39,7 +39,7 @@ func TestReadLaravelEnvWithoutShellExecution(t *testing.T) {
 	if _, exists := os.LookupEnv("OTHER_SECRET"); exists {
 		t.Fatal("unrelated secret imported")
 	}
-	if got := os.Getenv("DOZOR_SERVER"); got != "\$(touch /tmp/this-is-data-not-shell)" {
+	if got := os.Getenv("DOZOR_SERVER"); got != "$(touch /tmp/this-is-data-not-shell)" {
 		t.Fatalf("shell text mutated: %q", got)
 	}
 }
