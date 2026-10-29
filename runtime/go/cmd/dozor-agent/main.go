@@ -293,11 +293,19 @@ func status(arguments []string) error {
 	if err := fs.Parse(arguments); err != nil {
 		return err
 	}
+	snapshot, _ := state.Read(*statePath)
+	// Status can be invoked from a different working directory than the daemon.
+	// Explicit CLI/environment overrides still take precedence over saved state.
+	if snapshot.Context.SpoolPath != "" && !flagWasSet(fs, "spool") && os.Getenv("DOZOR_GO_SPOOL_PATH") == "" && os.Getenv("DOZOR_AGENT_SPOOL_PATH") == "" {
+		*path = snapshot.Context.SpoolPath
+	}
+	if snapshot.Context.ListenOn != "" && !flagWasSet(fs, "listen") && os.Getenv("DOZOR_INGEST_URI") == "" {
+		*listen = snapshot.Context.ListenOn
+	}
 	pending, failed, err := spool.CountAt(*path)
 	if err != nil {
 		return err
 	}
-	snapshot, _ := state.Read(*statePath)
 	reachable := false
 	hash := env("DOZOR_AGENT_TOKEN_HASH", "")
 	if hash == "" && env("DOZOR_TOKEN", "") != "" {
@@ -334,4 +342,14 @@ func status(arguments []string) error {
 		return errors.New("remote shipping is disabled")
 	}
 	return nil
+}
+
+func flagWasSet(flags *flag.FlagSet, name string) bool {
+	found := false
+	flags.Visit(func(option *flag.Flag) {
+		if option.Name == name {
+			found = true
+		}
+	})
+	return found
 }
