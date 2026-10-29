@@ -63,7 +63,7 @@ func lifecycleSpans(rootPayload obj,duration int,rootSpanID any,app,environment 
   if name=="action"{legacy="controller"}
   if name=="before_middleware"||name=="after_middleware"{legacy="middleware"}
   phase:=emptyFields("lifecycle",label,id,rootSpanID,offset,spanDuration,obj{
-   "phase":name,"legacy_phase":legacy,"phase_meta":metadata,
+   "phase":name,"legacy_phase":legacy,"phase_meta":phaseMetadata(metadata),
   })
   spans=append(spans,phase)
   old,exists:=ranges[name]
@@ -278,3 +278,5 @@ func rootStatus(kind string,payload obj)int{
 }
 func spanOffsetFallback(value string)time.Time{t,_:=parseTime(value);return t}
 func stringifyKind(kind string)string{return strings.ToLower(kind)}
+
+func phaseMetadata(meta obj)any{if len(meta)==0{return []any{}};return meta}
