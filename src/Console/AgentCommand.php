@@ -42,6 +42,7 @@ final class AgentCommand extends Command
         {--heartbeat-interval-seconds= : Agent heartbeat emission interval in seconds}
         {--trace-max-spans-per-trace= : Maximum spans emitted per transformed trace}
         {--server=}
+        {--debug : Show a live agent dashboard or stream debug events without a TTY}
         {--silent : Do not output startup details}';
 
     /**
@@ -89,6 +90,7 @@ final class AgentCommand extends Command
         $traceMaxSpansPerTrace = $this->intOption('trace-max-spans-per-trace', (int) Arr::get($this->config, 'agent.tracing.max_spans_per_trace', 200));
         $tokenHash = substr(hash('xxh128', (string) $this->token), 0, 7);
         $silent = (bool) $this->option('silent');
+        $debug = (bool) $this->option('debug');
         $runtimeState = new AgentRuntimeState($telemetryStatePath);
 
         $spoolQueue = null;
@@ -96,7 +98,7 @@ final class AgentCommand extends Command
         $traceBatchTransformer = null;
 
         if ($shipperEnabled && ($hostedIngestUrl === '' || $hostedIngestToken === '')) {
-            if (!$silent) {
+            if (!$silent && !$debug) {
                 $this->components->warn('Remote shipping is not configured. Set DOZOR_HOSTED_INGEST_URL and DOZOR_TOKEN; records will stay local.');
             }
         }
@@ -131,11 +133,22 @@ final class AgentCommand extends Command
 
         }
 
+        $dashboard = $debug ? new AgentDebugDashboard(
+            output: $this->output,
+            runtimeState: $runtimeState,
+            spoolQueue: $spoolQueue,
+            appName: $appName,
+            serverName: $serverName,
+            environment: $environment,
+            listenOn: $listenOn,
+            shippingEnabled: $shipper?->enabled() ?? false,
+        ) : null;
+
         $server = new Server(
             listenOn: $listenOn,
             tokenHash: $tokenHash,
             storePath: $storePath,
-            output: $silent ? null : $this->output,
+            output: ($silent || $debug) ? null : $this->output,
             serverName: $serverName,
             appName: $appName,
             environment: $environment,
@@ -148,6 +161,7 @@ final class AgentCommand extends Command
             shipFlushIntervalSeconds: max(0.1, $shipFlushIntervalSeconds),
             heartbeatIntervalSeconds: max(1.0, $heartbeatIntervalSeconds),
             runtimeState: $runtimeState,
+            dashboard: $dashboard,
         );
 
         try {

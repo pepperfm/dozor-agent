@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Dozor\Agent;
 
+use Dozor\Console\AgentDebugDashboard;
 use Dozor\Agent\Transport\HostedIngestTransport;
 use Dozor\Telemetry\AgentRuntimeState;
 use Dozor\Tracing\TraceBatchTransformer;
@@ -59,6 +60,7 @@ final class Server
         private readonly float $shipFlushIntervalSeconds = 2.0,
         private readonly float $heartbeatIntervalSeconds = 15.0,
         private readonly ?AgentRuntimeState $runtimeState = null,
+        private readonly ?AgentDebugDashboard $dashboard = null,
     ) {
     }
 
@@ -95,40 +97,47 @@ final class Server
             environment: $this->environment,
             shipperEnabled: $this->shipper?->enabled() ?? false,
         );
+        $this->dashboard?->start();
 
-        while ($this->running) {
-            $client = @stream_socket_accept($server, 1);
-            if (!is_resource($client)) {
+        try {
+            while ($this->running) {
+                $client = @stream_socket_accept($server, 1);
+                if (!is_resource($client)) {
+                    $this->emitHeartbeatIfDue();
+                    $this->flushQueuedBatches();
+                    $this->dashboard?->tick();
+
+                    continue;
+                }
+
+                try {
+                    $this->handleClient($client);
+                    fwrite_all($client, '2:OK');
+                } catch (Throwable $e) {
+                    logger()->error('dozor.agent.ingest.client_error', [
+                        'message' => $e->getMessage(),
+                        'class' => $e::class,
+                        'max_frame_bytes' => self::MAX_FRAME_BYTES,
+                        ...$this->makeClientLogContext($client),
+                    ]);
+                    $this->dashboard?->error('Ingest client rejected (' . $e::class . ')');
+                    $this->line('Agent error: ' . $e->getMessage());
+                    @fwrite($client, '5:ER');
+                } finally {
+                    fclose_safely($client);
+                }
+
                 $this->emitHeartbeatIfDue();
-                $this->flushQueuedBatches();
-
-                continue;
+                $this->flushQueuedBatches(force: $this->shouldForceFlushByQueueDepth());
+                $this->dashboard?->tick();
             }
 
-            try {
-                $this->handleClient($client);
-                fwrite_all($client, '2:OK');
-            } catch (Throwable $e) {
-                logger()->error('dozor.agent.ingest.client_error', [
-                    'message' => $e->getMessage(),
-                    'class' => $e::class,
-                    'max_frame_bytes' => self::MAX_FRAME_BYTES,
-                    ...$this->makeClientLogContext($client),
-                ]);
-                $this->line('Agent error: ' . $e->getMessage());
-                @fwrite($client, '5:ER');
-            } finally {
-                fclose_safely($client);
-            }
-
-            $this->emitHeartbeatIfDue();
-            $this->flushQueuedBatches(force: $this->shouldForceFlushByQueueDepth());
+            $this->flushQueuedBatches(force: true);
+            $this->runtimeState?->markStopped((int) max(0, round(microtime(true) - $this->startedAt)));
+        } finally {
+            $this->dashboard?->stop();
+            fclose_safely($server);
         }
-
-        $this->flushQueuedBatches(force: true);
-        $this->runtimeState?->markStopped((int) max(0, round(microtime(true) - $this->startedAt)));
-
-        fclose_safely($server);
     }
 
     private function installSignalHandlers(): void
@@ -157,6 +166,7 @@ final class Server
         $this->running = false;
         $this->runtimeState?->markShutdownRequested($signal);
 
+        $this->dashboard?->shutdown($signal);
         $this->line("Shutdown requested by {$signal}. Draining queued batches...");
     }
 
@@ -202,6 +212,8 @@ final class Server
         if (!is_array($records)) {
             throw new \RuntimeException('Decoded payload is not a record list');
         }
+
+        $this->dashboard?->received(count($records));
 
         if ($this->shipper?->enabled() === true && $this->spoolQueue !== null) {
             $this->enqueueRecords($records);
@@ -313,6 +325,7 @@ final class Server
                 ?? $this->makeLegacyOutboundPayload($normalized);
 
             $this->spoolQueue?->enqueue($payload);
+            $this->dashboard?->queued(count($normalized));
         }
 
         $forceFlush = count($chunks) >= $this->shipMaxBatchesPerFlush;
@@ -361,6 +374,7 @@ final class Server
         $shipper = $this->shipper;
         $queueDepth = $this->spoolQueue->queuedBatchesCount();
         $failedQueueDepth = $this->spoolQueue->failedBatchesCount();
+        $this->dashboard?->flush($queueDepth, $force);
         $this->runtimeState?->markFlush(
             force: $force,
             maxBatches: $maxBatches,
@@ -368,9 +382,13 @@ final class Server
             failedQueueDepth: $failedQueueDepth,
         );
 
+        $dashboard = $this->dashboard;
         $this->spoolQueue->drain(
-            static function (array $payload, string $batchId, int $attempt) use ($shipper): bool {
-                return $shipper->ship($payload, $batchId, $attempt);
+            static function (array $payload, string $batchId, int $attempt) use ($shipper, $dashboard): bool {
+                $shipped = $shipper->ship($payload, $batchId, $attempt);
+                $dashboard?->shipped($shipped, $attempt);
+
+                return $shipped;
             },
             $maxBatches,
         );
@@ -436,6 +454,7 @@ final class Server
                 'memory_peak_bytes' => memory_get_peak_usage(true),
             ],
         ];
+        $this->dashboard?->heartbeat();
         $this->runtimeState?->markHeartbeat(
             queueDepth: $queueDepth,
             failedQueueDepth: $failedQueueDepth,
