@@ -124,7 +124,12 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, os.Interrupt)
 	defer stop()
 	stats := &shipping.Stats{}
-	writer := &state.Writer{Path: *statePath, SpoolPath: *path, ShipperEnabled: shippingEnabled}
+	writer := &state.Writer{
+		Path: *statePath, SpoolPath: *path, ShipperEnabled: shippingEnabled,
+		AppName: env("DOZOR_APP_NAME", env("APP_NAME", "laravel")),
+		ServerName: env("DOZOR_SERVER", hostName()),
+		Environment: env("DOZOR_ENV", env("APP_ENV", "production")),
+	}
 	events := make(chan tui.Event, 128)
 	terminal := *debug && tui.IsTerminal(os.Stdout)
 	srv := &ingest.Server{Listener: ln, Queue: q, TokenHash: hash, MaxClients: *maxClients, BatchSize: envInt("DOZOR_AGENT_SHIP_BATCH_SIZE", 100), Debug: *debug && !terminal, Events: events}

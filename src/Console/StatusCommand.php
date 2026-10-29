@@ -84,7 +84,9 @@ final class StatusCommand extends Command
             'shipper_enabled' => $shipperEnabled,
             'shipper_configured' => $shipperConfigured,
             'runtime' => $isGo ? $runtime : 'php',
-            'shipping_warning' => $shipperConfigured ? null : 'Missing DOZOR_HOSTED_INGEST_URL or DOZOR_TOKEN',
+            'shipping_warning' => !$shipperEnabled && $isGo
+                ? 'Remote shipping is disabled in Go agent'
+                : ($shipperConfigured ? null : 'Missing DOZOR_HOSTED_INGEST_URL or DOZOR_TOKEN'),
             'spool_path' => $spoolPath,
             'state_path' => $statePath,
             'lifecycle' => [
