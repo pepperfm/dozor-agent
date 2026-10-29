@@ -12,7 +12,6 @@ StateDirectory=dozor-agent
 StateDirectoryMode=0700
 WorkingDirectory=/var/lib/dozor-agent
 ExecStart=/usr/local/bin/dozor-agent
-ExecStartPre=/usr/bin/test -r /etc/dozor-agent/agent.env
 Restart=on-failure
 RestartSec=3
 TimeoutStopSec=30

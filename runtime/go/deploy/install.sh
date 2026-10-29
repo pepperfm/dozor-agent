@@ -19,7 +19,11 @@ curl -fsSL --retry 3 -o "$tmp/SHA256SUMS" "$base/SHA256SUMS"
 (
   cd "$tmp"
   # Checksums for all release binaries are validated before installation.
-  grep "  dozor-agent-${platform}-${arch}$" SHA256SUMS | sha256sum -c -
+  if [[ "$platform" == darwin ]]; then
+    grep "  dozor-agent-${platform}-${arch}$" SHA256SUMS | shasum -a 256 -c -
+  else
+    grep "  dozor-agent-${platform}-${arch}$" SHA256SUMS | sha256sum -c -
+  fi
 )
 install -m 0755 "$tmp/dozor-agent-${platform}-${arch}" /usr/local/bin/dozor-agent
 if [[ "$platform" == linux ]]; then
