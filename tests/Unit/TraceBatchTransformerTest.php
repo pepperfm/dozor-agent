@@ -464,11 +464,6 @@ final class TraceBatchTransformerTest extends TestCase
         self::assertGreaterThan(0, $trace['duration_ms']);
     }
 
-    /**
-     * @param array<int, mixed> $spans
-     *
-     * @return array<string, mixed>|null
-     */
     public function test_nested_job_fragment_is_a_child_without_replacing_http_root(): void
     {
         $transformer = new TraceBatchTransformer('App', 'token', 'production', 'host');
@@ -589,6 +584,11 @@ final class TraceBatchTransformerTest extends TestCase
         self::assertSame('render', $query['metadata']['lifecycle_phase']);
     }
 
+    /**
+     * @param array<int, mixed> $spans
+     *
+     * @return array<string, mixed>|null
+     */
     private function findSpan(array $spans, string $kind, ?string $name = null): ?array
     {
         foreach ($spans as $span) {
@@ -609,6 +609,7 @@ final class TraceBatchTransformerTest extends TestCase
 
         return null;
     }
+
     public function test_transport_fragments_share_stable_trace_and_root_ids(): void
     {
         $transformer = new TraceBatchTransformer('App', 'token', 'production', 'host');
