@@ -448,7 +448,8 @@ final class TraceBatchTransformer
                 'kind' => 'outgoing_http',
                 'name' => (string) Arr::get($payload, 'url', 'outgoing_http'),
                 'start_offset_ms' => $offsetMs,
-                'duration_ms' => max(1, (int) round($this->resolveNumeric($payload, ['duration_ms'], 1))),
+                // A missing HTTP client duration is unknown, not a measured 1ms.
+                'duration_ms' => max(0, (int) round($this->resolveNumeric($payload, ['duration_ms'], 0))),
                 'connection' => null,
                 'normalized_signature' => null,
                 'sql_text' => null,
@@ -483,7 +484,7 @@ final class TraceBatchTransformer
                 'kind' => 'query',
                 'name' => $this->querySpanName($payload),
                 'start_offset_ms' => $offsetMs,
-                'duration_ms' => max(1, (int) round($this->resolveNumeric($payload, ['time_ms'], 1))),
+                'duration_ms' => max(0, (int) round($this->resolveNumeric($payload, ['time_ms'], 0))),
                 'connection' => is_string(Arr::get($payload, 'connection')) ? Arr::get($payload, 'connection') : null,
                 'normalized_signature' => $this->resolveQueryNormalizedSignature($payload),
                 'sql_text' => is_string(Arr::get($payload, 'sql')) ? Arr::get($payload, 'sql') : null,
@@ -497,7 +498,7 @@ final class TraceBatchTransformer
                     'source' => Arr::get($payload, 'source'),
                 ],
             ],
-            'job' => [
+            'job', 'job_child' => [
                 'id' => $this->recordSpanId($record),
                 'parent_span_id' => $parentSpanId,
                 'kind' => 'job',
@@ -801,10 +802,12 @@ final class TraceBatchTransformer
         }
 
         $phase = null;
-        if ($preferredPhase !== null && isset($phaseSpanIds[$preferredPhase])) {
-            $phase = $preferredPhase;
-        } elseif ($phaseFromOffset !== null && isset($phaseSpanIds[$phaseFromOffset])) {
+        // Observed offset wins over the generic "action" fallback: view-time
+        // SQL/cache events must appear inside render rather than controller.
+        if ($phaseFromOffset !== null && isset($phaseSpanIds[$phaseFromOffset])) {
             $phase = $phaseFromOffset;
+        } elseif ($preferredPhase !== null && isset($phaseSpanIds[$preferredPhase])) {
+            $phase = $preferredPhase;
         } elseif (isset($phaseSpanIds[RequestLifecycleStage::Action->value])) {
             $phase = RequestLifecycleStage::Action->value;
         }
@@ -822,6 +825,7 @@ final class TraceBatchTransformer
             'outgoing_http',
             'cache',
             'job',
+            'job_child',
             'exception',
             'event',
             'log' => RequestLifecycleStage::Action->value,
@@ -838,7 +842,8 @@ final class TraceBatchTransformer
             'query' => max(1, (int) round($this->resolveNumeric($payload, ['time_ms'], 1))),
             'outgoing_http',
             'job',
-            'cache' => max(1, (int) round($this->resolveNumeric($payload, ['duration_ms'], 1))),
+            'job_child',
+            'cache' => max(0, (int) round($this->resolveNumeric($payload, ['duration_ms'], 0))),
             default => max(1, (int) round($this->resolveNumeric($payload, ['duration_ms', 'time_ms'], 1))),
         };
     }
