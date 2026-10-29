@@ -209,3 +209,6 @@ func boolValue(v any)bool{
 }
 func toFloat(v any,defaultValue float64)float64{if f,ok:=numeric(v);ok{return f};return defaultValue}
 func fmtType(v any)string{return fmt.Sprintf("%T",v)}
+
+// NewTraceID creates a ULID for synthetic agent heartbeat traces.
+func NewTraceID()string{return randomULID()}

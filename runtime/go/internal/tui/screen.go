@@ -50,7 +50,7 @@ func render(s state.Snapshot,events []Event)string{
  for _,event:=range events{b.WriteString(line(width,fmt.Sprintf("  %s   %-14s",event.Time.Format("15:04:05"),event.Kind)))}
  if len(events)==0{b.WriteString(line(width,"  No events yet. Waiting for PHP SDK..."))}
  b.WriteString("\x1b[36m├"+border+"┤\x1b[0m\n")
- b.WriteString(line(width,"  [Ctrl+C] Stop & restore terminal   •   ingest-only experimental"))
+ b.WriteString(line(width,"  [Ctrl+C] Stop & restore terminal   •   Go / PHP SDK"))
  b.WriteString("\x1b[36m╰"+border+"╯\x1b[0m\n")
  return b.String()
 }

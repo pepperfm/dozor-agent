@@ -41,7 +41,7 @@ func(w *Writer)Mark(status,listen string,queued,failed int,received,rejected,del
  snapshot.Lifecycle.LastHeartbeatAt=now.Format(time.RFC3339)
  snapshot.Lifecycle.UpdatedAt=now.Format(time.RFC3339)
  if status=="stopped"{snapshot.Lifecycle.StoppedAt=now.Format(time.RFC3339)}
- snapshot.Context.Runtime="go-ingest-only"
+ if w.ShipperEnabled{snapshot.Context.Runtime="go"}else{snapshot.Context.Runtime="go-ingest-only"}
  snapshot.Context.ListenOn=listen
  snapshot.Context.ShipperEnabled=w.ShipperEnabled
  snapshot.Metrics.QueueDepth=queued
