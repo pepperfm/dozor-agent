@@ -1,0 +1,168 @@
+{
+  "input": [
+    {
+      "type": "request",
+      "trace_id": "01J00000000000000000000920",
+      "record_id": "01J00000000000000000000921",
+      "happened_at": "2026-10-29T02:00:00+00:00",
+      "payload": {
+        "method": "GET",
+        "duration_ms": 4,
+        "headers": {
+          "Z-First": "retain",
+          "A-00": "value",
+          "A-01": "value",
+          "A-02": "value",
+          "A-03": "value",
+          "A-04": "value",
+          "A-05": "value",
+          "A-06": "value",
+          "A-07": "value",
+          "A-08": "value",
+          "A-09": "value",
+          "A-10": "value",
+          "A-11": "value",
+          "A-12": "value",
+          "A-13": "value",
+          "A-14": "value",
+          "A-15": "value",
+          "A-16": "value",
+          "A-17": "value",
+          "A-18": "value",
+          "A-19": "value",
+          "A-20": "value",
+          "A-21": "value",
+          "A-22": "value",
+          "A-23": "value",
+          "A-24": "value",
+          "A-25": "value",
+          "A-26": "value",
+          "A-27": "value",
+          "A-28": "value",
+          "A-29": "value",
+          "A-30": "value",
+          "A-31": "value"
+        },
+        "request_payload": {
+          "z": 1,
+          "a": {
+            "b": 2,
+            "a": 3
+          },
+          "slash": "a/b"
+        }
+      }
+    }
+  ],
+  "expected": {
+    "v": 1,
+    "app": {
+      "name": "fixture-app",
+      "token": "fixture-token-not-a-secret"
+    },
+    "environment": "testing",
+    "server": "fixture-host",
+    "sent_at": "2026-10-29T02:00:00+00:00",
+    "traces": [
+      {
+        "id": "01J00000000000000000000920",
+        "type": "request",
+        "started_at": "2026-10-29T02:00:00+00:00",
+        "method": "GET",
+        "route": "/",
+        "uri": "internal://agent",
+        "controller": null,
+        "host": "fixture-host",
+        "status_code": 200,
+        "duration_ms": 4,
+        "db_time_ms": 0,
+        "external_time_ms": 0,
+        "job_time_ms": 0,
+        "cpu_time_ms": 0,
+        "memory_mb": 0,
+        "request_id": null,
+        "release": null,
+        "user_label": null,
+        "tenant_label": null,
+        "deployment_id": null,
+        "spans": [
+          {
+            "id": "044CD45B43786EEDCAE444C376",
+            "parent_span_id": null,
+            "kind": "http",
+            "name": "request",
+            "start_offset_ms": 0,
+            "duration_ms": 4,
+            "connection": null,
+            "normalized_signature": null,
+            "sql_text": null,
+            "rows_count": null,
+            "service": null,
+            "queue": null,
+            "method": "GET",
+            "status_code": 200,
+            "metadata": {
+              "source_type": "request",
+              "started_at": "2026-10-29T02:00:00+00:00"
+            }
+          }
+        ],
+        "tags": [],
+        "meta": {
+          "source_trace_id": "01J00000000000000000000920",
+          "repeated_query_groups": 0,
+          "suspected_n_plus_one_groups": 0,
+          "records_count": 1,
+          "dropped_spans": 0,
+          "transport_dropped_records": 0,
+          "span_limit": 10,
+          "sampling_dropped": [],
+          "cache_capture_enabled": false,
+          "cache_sample_rate": 1,
+          "middleware": [],
+          "route_name": null,
+          "request_headers": {
+            "Z-First": "retain",
+            "A-00": "value",
+            "A-01": "value",
+            "A-02": "value",
+            "A-03": "value",
+            "A-04": "value",
+            "A-05": "value",
+            "A-06": "value",
+            "A-07": "value",
+            "A-08": "value",
+            "A-09": "value",
+            "A-10": "value",
+            "A-11": "value",
+            "A-12": "value",
+            "A-13": "value",
+            "A-14": "value",
+            "A-15": "value",
+            "A-16": "value",
+            "A-17": "value",
+            "A-18": "value",
+            "A-19": "value",
+            "A-20": "value",
+            "A-21": "value",
+            "A-22": "value",
+            "A-23": "value",
+            "A-24": "value",
+            "A-25": "value",
+            "A-26": "value",
+            "A-27": "value",
+            "A-28": "value",
+            "A-29": "value",
+            "A-30": "value"
+          },
+          "request_headers_truncated": true,
+          "request_payload_preview": "{\"z\":1,\"a\":{\"b\":2,\"a\":3},\"slash\":\"a\\/b\"}",
+          "request_payload_preview_truncated": false,
+          "lifecycle_ready": false,
+          "lifecycle_stages": []
+        },
+        "exception": null
+      }
+    ]
+  }
+}
