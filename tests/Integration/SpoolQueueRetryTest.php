@@ -26,7 +26,7 @@ final class SpoolQueueRetryTest extends TestCase
         self::assertSame(0, $queue->queuedBatchesCount());
         self::assertSame(2, $queue->failedBatchesCount());
 
-        $this->expectException(\\RuntimeException::class);
+        $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('spool capacity reached');
         $queue->enqueue(['traces' => [['id' => 'batch-3']]]);
     }
