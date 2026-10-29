@@ -636,7 +636,7 @@ class Dozor implements DozorContract
                 'server' => $this->config('server'),
                 'payload' => $this->attachSpanOffsets([
                     'level' => $level,
-                    'message' => mb_substr($message, 0, 3000),
+                    'message' => $this->safeErrorMessage($message, 3000),
                     'context' => $this->sanitizePayload($context),
                 ]),
             ]);
@@ -824,7 +824,7 @@ class Dozor implements DozorContract
         return preg_replace('~^(https?://)[^/@]+@~i', '$1', $url) ?? $url;
     }
 
-    private function safeErrorMessage(string $message): string
+    private function safeErrorMessage(string $message, int $maxLength = 500): string
     {
         $message = preg_replace('~https?://[^\s<>"\x27]+~i', '[URL REDACTED]', $message) ?? '[ERROR REDACTED]';
         $message = preg_replace(
@@ -833,7 +833,14 @@ class Dozor implements DozorContract
             $message,
         ) ?? '[ERROR REDACTED]';
 
-        return mb_substr($message, 0, 500);
+        // Also redact credential values embedded in JSON-encoded exception/log strings.
+        $message = preg_replace(
+            '~["\\x27]?(?:access_token|refresh_token|api_key|client_secret|password|secret|token|authorization)["\\x27]?\\s*[:=]\\s*(?:"[^"]*"|\\x27[^\\x27]*\\x27|[^\\s,;}\\]]+)~i',
+            '[CREDENTIAL REDACTED]',
+            $message,
+        ) ?? '[ERROR REDACTED]';
+
+        return mb_substr($message, 0, $maxLength);
     }
 
     private function normalizeSql(string $sql): string
