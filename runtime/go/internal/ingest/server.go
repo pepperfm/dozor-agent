@@ -1,5 +1,4 @@
 package ingest
-
 import(
  "context"
  "encoding/json"
@@ -12,24 +11,25 @@ import(
  "time"
  "github.com/pepperfm/dozor-agent/runtime/go/internal/protocol"
  "github.com/pepperfm/dozor-agent/runtime/go/internal/spool"
+ "github.com/pepperfm/dozor-agent/runtime/go/internal/tui"
 )
-
 type Server struct{
  Listener net.Listener
  Queue *spool.Queue
  TokenHash string
  MaxClients int
  Debug bool
+ Events chan<- tui.Event
  Received atomic.Uint64
  Rejected atomic.Uint64
  Active atomic.Int64
 }
-func(s *Server) Serve(ctx context.Context)error{
+func(s *Server)Serve(ctx context.Context)error{
  if s.MaxClients<1{s.MaxClients=32}
  limit:=make(chan struct{},s.MaxClients)
  var wg sync.WaitGroup
  go func(){<-ctx.Done();_ = s.Listener.Close()}()
- for {
+ for{
   client,err:=s.Listener.Accept()
   if err!=nil{
    if ctx.Err()!=nil{break}
@@ -37,12 +37,12 @@ func(s *Server) Serve(ctx context.Context)error{
    if errors.As(err,&ne)&&ne.Temporary(){time.Sleep(50*time.Millisecond);continue}
    return err
   }
-  select {
+  select{
   case limit<-struct{}{}:
    wg.Add(1);s.Active.Add(1)
    go func(c net.Conn){defer wg.Done();defer func(){<-limit;s.Active.Add(-1)}();s.handle(c)}(client)
   default:
-   s.Rejected.Add(1)
+   s.Rejected.Add(1);s.publish("overloaded")
    _ = client.SetWriteDeadline(time.Now().Add(100*time.Millisecond))
    _,_=io.WriteString(client,"5:ER")
    _ = client.Close()
@@ -55,17 +55,19 @@ func(s *Server)handle(c net.Conn){
  _ = c.SetDeadline(time.Now().Add(2*time.Second))
  records,ping,err:=protocol.Decode(c,s.TokenHash)
  if err==nil&&!ping{
-  // Durable acceptance occurs before ACK; raw records are NOT outbound traces.
+  // ACK follows durable persistence; raw records are not outbound traces.
   var body []byte
   body,err=json.Marshal(records)
   if err==nil{_,err=s.Queue.Enqueue(json.RawMessage(body))}
  }
  if err!=nil{
-  s.Rejected.Add(1)
+  s.Rejected.Add(1);s.publish("rejected")
   if s.Debug{log.Printf("rejected ingest: %T",err)}
-  _,_=io.WriteString(c,"5:ER")
-  return
+  _,_=io.WriteString(c,"5:ER");return
  }
- if !ping{s.Received.Add(uint64(len(records)))}
+ if !ping{s.Received.Add(uint64(len(records)));s.publish("accepted")}
  _,_=io.WriteString(c,"2:OK")
+}
+func(s *Server)publish(kind string){
+ if s.Events!=nil{select{case s.Events<-tui.Event{Time:time.Now(),Kind:kind}:default:}}
 }

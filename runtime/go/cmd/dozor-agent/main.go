@@ -16,6 +16,7 @@ import(
  "github.com/pepperfm/dozor-agent/runtime/go/internal/ingest"
  "github.com/pepperfm/dozor-agent/runtime/go/internal/spool"
  "github.com/pepperfm/dozor-agent/runtime/go/internal/state"
+ "github.com/pepperfm/dozor-agent/runtime/go/internal/tui"
 )
 const version="0.1.0-migration"
 func env(key,fallback string)string{if v:=os.Getenv(key);v!=""{return v};return fallback}
@@ -34,7 +35,7 @@ func run()error{
  hash:=fs.String("token-hash",env("DOZOR_AGENT_TOKEN_HASH",""),"PHP xxh128 token hash prefix")
  statePath:=fs.String("state-path",env("DOZOR_AGENT_STATE_PATH","./runtime-state.json"),"PHP-compatible runtime status path")
  max:=fs.Int("max-batches",envInt("DOZOR_AGENT_SHIP_MAX_SPOOL_BATCHES",500),"spool capacity")
- debug:=fs.Bool("debug",false,"append-only safe debug log")
+ debug:=fs.Bool("debug",false,"live TUI when terminal, append-only logs otherwise")
  ver:=fs.Bool("version",false,"show version")
  ingestOnly:=fs.Bool("ingest-only",false,"explicitly enable pre-release ingest-only mode")
  if err:=fs.Parse(os.Args[1:]);err!=nil{return err}
@@ -47,7 +48,9 @@ func run()error{
  ln,err:=net.Listen("tcp",*listen);if err!=nil{return err}
  ctx,stop:=signal.NotifyContext(context.Background(),syscall.SIGTERM,os.Interrupt);defer stop()
  writer:=&state.Writer{Path:*statePath}
- srv:=&ingest.Server{Listener:ln,Queue:q,TokenHash:*hash,MaxClients:32,Debug:*debug}
+ events:=make(chan tui.Event,128)
+ terminal:=*debug&&tui.IsTerminal(os.Stdout)
+ srv:=&ingest.Server{Listener:ln,Queue:q,TokenHash:*hash,MaxClients:32,Debug:*debug&&!terminal,Events:events}
  stateCtx,stateCancel:=context.WithCancel(context.Background())
  var stateWG sync.WaitGroup
  persist:=func(status string){
@@ -62,7 +65,13 @@ func run()error{
   for{select{case <-stateCtx.Done():return;case <-ticker.C:persist("running")}}
  }()
  defer func(){stateCancel();stateWG.Wait();persist("stopped")}()
- if *debug{
+ if terminal{
+  screenCtx,screenCancel:=context.WithCancel(ctx)
+  var wg sync.WaitGroup
+  wg.Add(1)
+  go func(){defer wg.Done();tui.Run(screenCtx,*statePath,events,os.Stdout)}()
+  defer func(){screenCancel();wg.Wait()}()
+ }else if *debug{
   log.Printf("ingest-only listener=%s spool=%s",ln.Addr(),*path)
   done:=make(chan struct{})
   go func(){

@@ -9,7 +9,7 @@ Baseline: `dozor-agent` master at `b0f17f47` (2026-10-29). PHP SDK and daemon re
 | C — durable spool | PARTIAL | tempfile + file/directory fsync, lock, capacity, recovery test. Crash-injection / disk-full tests pending |
 | D — Go transformer | NOT STARTED | PHP source is 1500+ lines; requires strict trace/span and lifecycle parity |
 | E — asynchronous shipping | PARTIAL | independent HTTP client handles 202/429/5xx, Retry-After and retries; no active worker or spool integration |
-| F — metrics and TUI | PARTIAL | JSON state file compatible with PHP runtime state structure, debug logs; interactive TUI pending |
+| F — metrics and TUI | PARTIAL | atomic runtime state file and interactive terminal dashboard, headless debug logging; full shipping views pending |
 | G — Laravel config/status | PARTIAL | v1 wire contract and optional DOZOR_AGENT_STATE_PATH. Manual token hash required |
 | H — builds/deployment | PARTIAL | four CI cross-builds. Production systemd/Sail deliberately deferred |
 | I — test/benchmark rollout | PARTIAL | Go unit/race tests, PHP Payload smoke, HTTP mock tests. Server E2E and measured baseline pending |
