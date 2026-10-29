@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sort"
 	"time"
 	"unicode"
 	"unicode/utf8"
@@ -277,8 +278,9 @@ func preview(v any) (any, bool) {
 		}
 	case json.Number, float64, int, int64:
 		value = stringVal(t)
-	case []any, map[string]any:
-		value = jsonInline(t)
+	case []any, map[string]any, orderedObject:
+		// PHP json_encode(..., JSON_UNESCAPED_UNICODE) still escapes slashes.
+		value = strings.ReplaceAll(jsonInline(t), "/", `\/`)
 	default:
 		return nil, false
 	}
@@ -320,9 +322,19 @@ func headers(v any) (any, bool) {
 	out := obj{}
 	truncated := false
 	input := asObj(v)
-	// map order is not significant when under the 32 header limit.
+	keys := []string{}
+	if ordered, ok := v.(orderedObject); ok {
+		input = ordered.values
+		keys = ordered.keys
+	} else {
+		for key := range input {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+	}
 	count := 0
-	for k, item := range input {
+	for _, k := range keys {
+		item := input[k]
 		if count >= 32 {
 			truncated = true
 			break

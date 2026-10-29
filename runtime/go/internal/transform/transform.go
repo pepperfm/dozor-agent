@@ -44,6 +44,11 @@ func (t *Transformer) Transform(ctx context.Context, raw json.RawMessage) (json.
 	if records == nil {
 		return nil, errors.New("records must be an array")
 	}
+	// Preserve PHP associative array insertion order for headers and previews:
+	// JSON objects in Go's map iteration have no defined ordering.
+	if err := restoreOrderedFields(raw, records); err != nil {
+		return nil, err
+	}
 	for _, record := range records {
 		if record == nil {
 			return nil, errors.New("record must be an object")
