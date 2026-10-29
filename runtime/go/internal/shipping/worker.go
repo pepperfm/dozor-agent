@@ -20,7 +20,7 @@ type Stats struct {
 	DeadLetters      atomic.Uint64
 }
 type Worker struct {
-	OnEvent func(kind string)
+	OnEvent      func(kind string)
 	Stats        *Stats
 	Queue        *spool.Queue
 	Transport    *Client

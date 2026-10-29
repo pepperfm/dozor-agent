@@ -143,7 +143,7 @@ func run() error {
 				case events <- tui.Event{Time: time.Now(), Kind: kind}:
 				default:
 				}
-			},Queue: q, Transport: client, Transformer: tr,
+			}, Queue: q, Transport: client, Transformer: tr,
 			MaxAttempts:  envInt("DOZOR_AGENT_SHIP_MAX_ATTEMPTS_PER_BATCH", 8),
 			PollInterval: envDuration("DOZOR_AGENT_SHIP_FLUSH_INTERVAL_SECONDS", 2*time.Second),
 			RetryBase:    time.Duration(envInt("DOZOR_AGENT_SHIP_QUEUE_BACKOFF_BASE_MS", 500)) * time.Millisecond,
