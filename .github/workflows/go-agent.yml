@@ -51,6 +51,20 @@ jobs:
           php runtime/go/tests/php_client.php
           test "$(find "$DOZOR_GO_SPOOL_PATH/queue" -name '*.json' | wc -l)" -ge 1
 
+  php-sdk-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          extensions: mbstring, intl, sockets
+          coverage: none
+      - name: Install dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+      - name: Run legacy SDK and daemon compatibility tests
+        run: vendor/bin/phpunit --no-coverage
+
   php-golden-fixtures:
     runs-on: ubuntu-latest
     steps:
@@ -99,7 +113,7 @@ jobs:
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [test, php-golden-fixtures, cross-build]
+    needs: [test, php-sdk-tests, php-golden-fixtures, cross-build]
     runs-on: ubuntu-latest
     permissions:
       contents: write
