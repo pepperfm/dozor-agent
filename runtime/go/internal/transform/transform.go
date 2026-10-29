@@ -27,10 +27,11 @@ func (t *Transformer) now() time.Time {
 	return time.Now().UTC()
 }
 func (t *Transformer) spanLimit() int {
-	if t.MaxSpansPerTrace < 10 {
+	if t.MaxSpansPerTrace <= 0 {
 		return 200
 	}
-	return t.MaxSpansPerTrace
+	// Mirror Laravel's max(10, DOZOR_AGENT_TRACE_MAX_SPANS_PER_TRACE).
+	return max(10, t.MaxSpansPerTrace)
 }
 func (t *Transformer) Transform(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
 	if t.AppName == "" || t.AppToken == "" || t.Environment == "" || t.ServerName == "" {

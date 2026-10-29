@@ -459,7 +459,8 @@ func applyPhase(span obj, phase any) {
 	span["metadata"] = metadata
 }
 func rootStatus(kind string, payload obj) int {
-	if get(payload, "status") != nil {
+	// PHP checks is_numeric(status) before falling back to status_code.
+	if _, ok := numeric(get(payload, "status")); ok {
 		return statusCode(get(payload, "status"))
 	}
 	if kind == "outgoing_http" {

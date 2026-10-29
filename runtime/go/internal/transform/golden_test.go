@@ -55,3 +55,23 @@ func TestNeverUploadInvalidRecords(t *testing.T) {
 		}
 	}
 }
+
+func TestSpanLimitMatchesLaravelConfiguration(t *testing.T) {
+	tr := &Transformer{MaxSpansPerTrace: 1}
+	if got := tr.spanLimit(); got != 10 {
+		t.Fatalf("Laravel clamps explicit limits to 10, got %d", got)
+	}
+	tr.MaxSpansPerTrace = 0
+	if got := tr.spanLimit(); got != 200 {
+		t.Fatalf("unspecified limit should remain 200, got %d", got)
+	}
+}
+func TestOutgoingRootFallsBackFromNonnumericStatus(t *testing.T) {
+	payload := obj{"status": "failed", "status_code": 502}
+	if got := rootStatus("outgoing_http", payload); got != 502 {
+		t.Fatalf("expected HTTP 502 from status_code, got %d", got)
+	}
+	if got := rootStatus("request", payload); got != 200 {
+		t.Fatalf("unexpected request status: %d", got)
+	}
+}
