@@ -10,7 +10,7 @@
 - Go transformer (traces, spans, lifecycle, nested records, exceptions, truncation) с **11 PHP-generated golden fixtures** в CI.
 - Независимый HTTP worker: проверенный TLS с отказом от недоверенного сертификата, Bearer token, 202, 429/5xx, Retry-After с отложенной spool-попыткой (не блокирует другие батчи), backoff+jitter, dead-letter и сохранение outbound payload между попытками.
 - Периодические heartbeat, JSON runtime state, `status --json/--strict`, интерактивный `--debug` TUI и безопасные headless логи.
-- GitHub Actions: Go race/integration tests, PHP SDK PHPUnit, golden-drift gate, Linux/macOS × AMD64/ARM64. Бинарники публикуются при release tag.
+- Unit/race и golden fixture тесты доступны для локального запуска. GitHub Actions удалены по решению владельца; Go-бинарники для Pechka собираются и публикуются администратором вне GitHub CI.
 - systemd unit, установщик с SHA256, инструкции для Sail.
 
 ## Локальная разработка
@@ -43,6 +43,12 @@ export DOZOR_AGENT_STATE_PATH="$(mktemp -d)/runtime-state.json"
 ```
 
 PHP интеграция **не переписывалась**. `php artisan dozor:status --json/--strict` продолжает работать через TCP PING и общую runtime-state JSON. `php artisan dozor:agent` остаётся legacy PHP daemon для отладки/отката, но не должен запускаться вместе с Go на одном порту.
+
+## Подключение через Печку
+
+Печка сама устанавливает проверенный бинарник, PHP SDK и управляет процессом Supervisor, когда владелец панели настроил HTTPS-источники бинарников и SHA256. Пользователю сайта не требуется SSH. Для безопасной загрузки готовых бинарников после отключения CI выполните `bash scripts/build-pechka.sh` в `runtime/go`, опубликуйте оба Linux-бинарника на HTTPS и укажите URL/SHA256 в конфигурации Печки.
+
+Go запускается с `--env-file=/path/to/.env`: читает только переменные `DOZOR_*`, `APP_NAME`, `APP_ENV` как данные без shell evaluation; переменные, переданные операционной системой, имеют приоритет. Не передавайте токены аргументами CLI.
 
 ## Развёртывание
 
