@@ -58,6 +58,65 @@ jobs:
           php runtime/go/tests/php_client.php
           test "$(find "$DOZOR_GO_SPOOL_PATH/queue" -name '*.json' | wc -l)" -ge 1
 
+  php-to-go-http:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.x'
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+      - name: Build agent
+        working-directory: runtime/go
+        run: CGO_ENABLED=0 go build -o /tmp/dozor-agent ./cmd/dozor-agent
+      - name: Exercise real PHP Payload through Go to HTTP 202
+        shell: bash
+        run: |
+          set -euo pipefail
+          export DOZOR_TEST_TOKEN='php-to-go-http-contract'
+          export DOZOR_TOKEN="$DOZOR_TEST_TOKEN"
+          export DOZOR_HOSTED_INGEST_URL='http://127.0.0.1:18082/api/v1/ingest'
+          export DOZOR_INGEST_URI='127.0.0.1:4817'
+          export DOZOR_APP_NAME='CI integration fixture'
+          export DOZOR_ENV='testing'
+          export DOZOR_SERVER='github-actions'
+          export DOZOR_GO_SPOOL_PATH="$RUNNER_TEMP/dozor-full-spool"
+          export DOZOR_AGENT_STATE_PATH="$RUNNER_TEMP/dozor-full-state.json"
+          export DOZOR_RECEIVED_FILE="$RUNNER_TEMP/dozor-received.json"
+          python3 runtime/go/tests/http_receiver.py > /dev/null 2>&1 &
+          receiver_pid=$!
+          /tmp/dozor-agent > "$RUNNER_TEMP/dozor-full-agent.log" 2>&1 &
+          agent_pid=$!
+          trap 'kill "$agent_pid" "$receiver_pid" 2>/dev/null || true' EXIT
+          for i in $(seq 1 40); do
+            if /tmp/dozor-agent status --strict --json > /dev/null 2>&1; then break; fi
+            sleep 0.1
+          done
+          php runtime/go/tests/php_client.php
+          delivered=0
+          for i in $(seq 1 80); do
+            if test -s "$DOZOR_RECEIVED_FILE"; then delivered=1; break; fi
+            sleep 0.25
+          done
+          if test "$delivered" -ne 1; then
+            cat "$RUNNER_TEMP/dozor-full-agent.log" >&2
+            exit 1
+          fi
+          python3 - <<'PY'
+          import json, os
+          with open(os.environ["DOZOR_RECEIVED_FILE"], encoding="utf-8") as f:
+              d = json.load(f)
+          assert d["v"] == 1
+          assert d["app"]["name"] == "CI integration fixture"
+          assert len(d["traces"]) == 1
+          kinds = [s["kind"] for s in d["traces"][0]["spans"]]
+          assert "http" in kinds and "query" in kinds, kinds
+          print("PHP SDK -> Go TCP -> spool -> transform -> HTTP 202: OK")
+          PY
+
   php-sdk-tests:
     runs-on: ubuntu-latest
     steps:
@@ -120,7 +179,7 @@ jobs:
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [test, php-sdk-tests, php-golden-fixtures, cross-build]
+    needs: [test, php-to-go-http, php-sdk-tests, php-golden-fixtures, cross-build]
     runs-on: ubuntu-latest
     permissions:
       contents: write
