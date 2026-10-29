@@ -6,13 +6,13 @@
 |---|---|---|
 | A — контракт v1 и fixtures | ✅ | Настоящий PHP Payload smoke, **11 PHP-generated golden fixtures**, golden-drift gate |
 | B — конкурентный TCP ingest | ✅ | Bounded goroutines, read deadlines, localhost, ошибки при перегрузке, корректный 2:OK/5:ER |
-| C — durable spool | ✅ / fault injection отдельно | temp+rename, fsync файла/каталога, capacity, singleton flock, recovery, processing, failed; status учитывает in-flight |
+| C — durable spool | ✅ / fault injection отдельно | temp+rename, fsync файла/каталога, capacity, singleton flock, recovery, processing, failed; disk-write-failure → 5:ER тест, status учитывает in-flight |
 | D — Go transformer | ✅ 11 сценариев | Точное семантическое сравнение с PHP эталонами, включая N+1, lifecycle, truncation, порядок 33 headers, вложенный request preview, HTTP status fallback; ассоциативные headers. Дополнительные edge-cases возможны |
 | E — shipping worker | ✅ | Отдельная горутина, HTTP 202, 429/5xx, долговременный Retry-After через spool без блокировки других батчей, exponential backoff, jitter, retries, неизменность sent_at |
 | F — metrics и debug TUI | ✅ | TTY TUI, событийные headless debug-логи без payload/secrets, атомарный runtime state, корректный dead-letter count, очередь/ошибки/uptime/доставка |
-| G — PHP SDK и конфигурация | ✅ | PHP instrumentation без breaking changes, автоматический XXH128 из DOZOR_TOKEN, status --json/--strict |
+| G — PHP SDK и конфигурация | ✅ | PHP instrumentation без breaking changes, автоматический XXH128 из DOZOR_TOKEN, status --json/--strict; PHP status использует spool_path Go и учитывает processing, Go status читает путь/порт из state |
 | H — бинарники, systemd, Sail | ✅ / release tag отдельно | CI cross-build 4 платформ, release pipeline с checksum, unit, secure installer, инструкция Sail |
-| I — E2E и нагрузка | Частично | PHP→Go→spool→transform→HTTP 202 E2E в публичном CI. В `pepperfm/dozor` добавлен PHP→Go→Laravel ingest→PostgreSQL E2E с offline recovery, но private GitHub Actions job пока не стартует (runner_id=0, steps=[]); результат НЕ подтверждён. PHP/Go p50/p95/p99 benchmark harness есть; baseline CPU/RSS и deployed E2E ещё не измерены |
+| I — E2E и нагрузка | Частично | PHP→Go→spool→transform→HTTP 202 E2E в публичном CI. Проверяется независимость TCP ACK от медленного HTTP receiver. В `pepperfm/dozor` добавлен PHP→Go→Laravel ingest→PostgreSQL E2E с offline recovery, но private GitHub Actions job пока не стартует (runner_id=0, steps=[]); результат НЕ подтверждён. PHP/Go p50/p95/p99 benchmark harness есть; baseline CPU/RSS и deployed E2E ещё не измерены |
 
 ## Правила доставки
 
