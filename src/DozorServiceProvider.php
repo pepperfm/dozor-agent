@@ -12,6 +12,7 @@ use Dozor\Contracts\IngestContract as IngestContract;
 use Dozor\Hooks\PreparingResponseListener;
 use Dozor\Hooks\RequestBootedHandler;
 use Dozor\Hooks\RequestHandledListener;
+use Dozor\Hooks\RequestTerminationFallback;
 use Dozor\Hooks\ResponsePreparedListener;
 use Dozor\Hooks\TerminatingListener;
 use Dozor\Http\Middleware\TraceRequest;
@@ -265,6 +266,10 @@ class DozorServiceProvider extends ServiceProvider
         Event::listen(RequestHandled::class, $this->app->make(RequestHandledListener::class));
         Event::listen(Terminating::class, $this->app->make(TerminatingListener::class));
         if ((bool) config('dozor.http.attach_middleware', true)) {
+            // Unlike route middleware, this path covers unmatched 404s too.
+            // It runs after terminable middleware and checks if the trace is
+            // still active, preventing duplicate request roots.
+            $this->app->terminating(new RequestTerminationFallback($core, $this->app));
             $this->app->booted(function (Application $app): void {
                 $handler = $this->app->make(RequestBootedHandler::class);
                 $handler($app);
