@@ -1,0 +1,29 @@
+[Unit]
+Description=Dozor telemetry agent (Go)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=dozor
+Group=dozor
+EnvironmentFile=/etc/dozor-agent/agent.env
+StateDirectory=dozor-agent
+StateDirectoryMode=0700
+WorkingDirectory=/var/lib/dozor-agent
+ExecStart=/usr/local/bin/dozor-agent
+ExecStartPre=/usr/bin/test -r /etc/dozor-agent/agent.env
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=30
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/dozor-agent
+LockPersonality=yes
+RestrictSUIDSGID=yes
+
+[Install]
+WantedBy=multi-user.target
