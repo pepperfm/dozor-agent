@@ -325,7 +325,7 @@ class Dozor implements DozorContract
 
             if ($e) {
                 $payload['exception_class'] = $e::class;
-                $payload['exception_message'] = $e->getMessage();
+                $payload['exception_message'] = $this->safeErrorMessage($e->getMessage());
             }
 
             $this->report([
@@ -425,7 +425,8 @@ class Dozor implements DozorContract
             unset($this->jobStartedAt[$key]);
 
             $this->report([
-                'type' => 'job',
+                // Synchronous jobs inside HTTP are waterfall children, not roots.
+                'type' => $this->currentTrace !== null ? 'job_child' : 'job',
                 'trace_id' => $traceId,
                 'happened_at' => $this->isoTime(),
                 'app' => $this->config('app_name'),
@@ -683,7 +684,13 @@ class Dozor implements DozorContract
             return;
         }
 
-        $type = str_starts_with($name, 'artisan.') ? 'command' : 'event';
+        // A nested Artisan::call() must not replace the request/command root.
+        $type = str_starts_with($name, 'artisan.')
+            && $this->currentTrace === null
+            && $this->activeJobTraceId === null
+            && $this->trackedCommandName === substr($name, strlen('artisan.'))
+                ? 'command'
+                : 'event';
         $duration = Arr::get($metadata, 'duration_ms');
         if ($type === 'command' && $this->commandTrace !== null) {
             $metadata['request_started_at'] = \Illuminate\Support\Carbon::createFromTimestamp($this->commandTrace->startedAt)->format('Y-m-d\\TH:i:s.uP');
