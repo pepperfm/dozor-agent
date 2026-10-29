@@ -96,11 +96,14 @@ func (c *Client) Upload(ctx context.Context, payload json.RawMessage) error {
 			backoff = capDelay
 		}
 		backoff = time.Duration(rand.Int63n(int64(backoff) + 1))
+		// A long server cooldown belongs in the durable spool, not a blocked
+		// HTTP attempt loop. The worker persists Retry-After and processes other
+		// batches instead of sleeping here for minutes.
+		if delay > capDelay {
+			break
+		}
 		if delay > backoff {
 			backoff = delay
-		}
-		if backoff > capDelay {
-			backoff = capDelay
 		}
 		if c.Wait != nil {
 			err = c.Wait(ctx, backoff)
@@ -115,11 +118,19 @@ func (c *Client) Upload(ctx context.Context, payload json.RawMessage) error {
 }
 func retryAfter(header string, now time.Time) time.Duration {
 	header = strings.TrimSpace(header)
+	const maxDelay = 24 * time.Hour
 	if seconds, err := strconv.ParseInt(header, 10, 64); err == nil && seconds >= 0 {
+		// Prevent time.Duration overflow when the receiver sends a huge value.
+		if seconds >= int64(maxDelay/time.Second) {
+			return maxDelay
+		}
 		return time.Duration(seconds) * time.Second
 	}
 	if date, err := http.ParseTime(header); err == nil && date.After(now) {
-		return date.Sub(now)
+		if duration := date.Sub(now); duration < maxDelay {
+			return duration
+		}
+		return maxDelay
 	}
 	return 0
 }

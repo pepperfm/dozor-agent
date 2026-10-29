@@ -82,3 +82,54 @@ func TestPermanentStatusToDeadLetter(t *testing.T) {
 		t.Fatalf("expected deadletter, got %d", failed)
 	}
 }
+
+// A long 429 cooldown must not block a second independent batch.
+func TestWorkerHandlesOtherBatchesDuringRetryAfter(t *testing.T) {
+	q, err := spool.Open(t.TempDir(), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer q.Close()
+	for range 2 {
+		if _, err := q.Enqueue(json.RawMessage(`[{"type":"request"}]`)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if calls.Add(1) == 1 {
+			w.Header().Set("Retry-After", "120")
+			w.WriteHeader(429)
+			return
+		}
+		w.WriteHeader(202)
+	}))
+	defer server.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	worker := &Worker{
+		Queue: q, Transformer: &fixedTransformer{},
+		Transport: &Client{URL: server.URL, Token: "secret", Attempts: 3, MaxBackoff: 10*time.Millisecond},
+		PollInterval: time.Millisecond, RetryCap: 10*time.Millisecond,
+		OnEvent: func(kind string) {
+			if kind == "uploaded-202" {
+				cancel()
+			}
+		},
+	}
+	if err := worker.Run(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if calls.Load() != 2 {
+		t.Fatalf("second batch starved behind Retry-After: calls=%d", calls.Load())
+	}
+	files, err := q.Pending()
+	if err != nil || len(files) != 1 {
+		t.Fatalf("expected deferred batch, files=%v err=%v", files, err)
+	}
+	envelope, err := q.Read(files[0])
+	if err != nil || envelope.Attempt != 1 || envelope.NextAttemptAt < float64(time.Now().Add(110*time.Second).Unix()) {
+		t.Fatalf("retry deadline not persisted: %+v err=%v", envelope, err)
+	}
+}

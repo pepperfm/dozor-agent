@@ -154,10 +154,9 @@ func (w *Worker) process(ctx context.Context, item *spool.Claimed) error {
 	}
 	backoff = time.Duration(rand.Int63n(int64(backoff) + 1))
 	if errors.As(err, &httpErr) && httpErr.RetryAfter > backoff {
+		// Respect remote throttling even when it exceeds our local jitter cap.
+		// The worker persists the future deadline and moves to other batches.
 		backoff = httpErr.RetryAfter
-	}
-	if backoff > capDelay {
-		backoff = capDelay
 	}
 	item.Envelope.Attempt = attempt
 	item.Envelope.LastFailedAt = float64(time.Now().UnixNano()) / 1e9

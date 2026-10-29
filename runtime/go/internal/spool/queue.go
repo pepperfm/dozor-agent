@@ -232,10 +232,18 @@ func (q *Queue) Fail(path, reason string) error {
 
 // CountAt inspects spool without claiming its lock so status works while daemon is active.
 func CountAt(root string) (int, int, error) {
-	a, err := filepath.Glob(filepath.Join(root, "queue", "*.json"))
+	pending, err := filepath.Glob(filepath.Join(root, "queue", "*.json"))
 	if err != nil {
 		return 0, 0, err
 	}
-	b, err := filepath.Glob(filepath.Join(root, "failed", "*.json"))
-	return len(a), len(b), err
+	processing, err := filepath.Glob(filepath.Join(root, "processing", "*.json"))
+	if err != nil {
+		return 0, 0, err
+	}
+	failed, err := filepath.Glob(filepath.Join(root, "failed", "*.json"))
+	if err != nil {
+		return 0, 0, err
+	}
+
+	return len(pending) + len(processing), len(failed), nil
 }

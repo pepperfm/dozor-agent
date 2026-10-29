@@ -85,3 +85,32 @@ func TestHTTP429PreservesRetryAfterForDurableSpool(t *testing.T) {
 		t.Fatalf("expected 7s retry after, got %+v", err)
 	}
 }
+
+func TestLongRetryAfterYieldsToDurableWorker(t *testing.T) {
+	var attempts atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		attempts.Add(1)
+		w.Header().Set("Retry-After", "120")
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer server.Close()
+
+	var waited atomic.Bool
+	client := Client{URL: server.URL, Token: "secret", Attempts: 3,
+		MaxBackoff: time.Second, Wait: func(_ context.Context, _ time.Duration) error {
+			waited.Store(true)
+			return nil
+		},
+	}
+	err := client.Upload(context.Background(), json.RawMessage(`{"v":1}`))
+	var throttled *HTTPError
+	if !errors.As(err, &throttled) || throttled.RetryAfter != 120*time.Second {
+		t.Fatalf("expected durable 120s cooldown: %v", err)
+	}
+	if waited.Load() || attempts.Load() != 1 {
+		t.Fatalf("long cooldown blocked the HTTP client: waited=%t attempts=%d", waited.Load(), attempts.Load())
+	}
+	if got := retryAfter("999999999999", time.Now()); got != 24*time.Hour {
+		t.Fatalf("unbounded Retry-After: %v", got)
+	}
+}
