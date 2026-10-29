@@ -304,19 +304,41 @@ func headerScalar(v any) string {
 func headerValue(v any) string {
 	switch t := v.(type) {
 	case []any:
-		out := []string{}
-		for _, item := range t {
-			switch item.(type) {
-			case string, bool, int, int64, float64, json.Number:
-				out = append(out, headerScalar(item))
-			}
+		return headerScalars(t)
+	case orderedObject:
+		values := make([]any, 0, len(t.keys))
+		for _, key := range t.keys {
+			values = append(values, t.values[key])
 		}
-		return strings.Join(out, ", ")
+		return headerScalars(values)
+	case map[string]any:
+		keys := make([]string, 0, len(t))
+		for key := range t {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		values := make([]any, 0, len(keys))
+		for _, key := range keys {
+			values = append(values, t[key])
+		}
+		return headerScalars(values)
 	case string, bool, int, int64, float64, json.Number:
 		return headerScalar(t)
 	default:
 		return ""
 	}
+}
+
+// PHP's headerValueToString accepts both indexed and associative arrays.
+func headerScalars(values []any) string {
+	out := []string{}
+	for _, item := range values {
+		switch item.(type) {
+		case string, bool, int, int64, float64, json.Number:
+			out = append(out, headerScalar(item))
+		}
+	}
+	return strings.Join(out, ", ")
 }
 func headers(v any) (any, bool) {
 	out := obj{}

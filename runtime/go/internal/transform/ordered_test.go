@@ -63,3 +63,13 @@ func TestOrderedJSONPreservesNestedArraysAndSlashes(t *testing.T) {
 		t.Fatalf("preview mismatch: %v", got)
 	}
 }
+
+func TestPHPAssociativeHeaderValues(t *testing.T) {
+	value, err := decodeOrdered(json.RawMessage(`{"second":false,"first":"abc","third":3}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := headerValue(value); got != "false, abc, 3" {
+		t.Fatalf("associative PHP header values lost: %q", got)
+	}
+}
