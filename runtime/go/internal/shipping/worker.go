@@ -20,6 +20,7 @@ type Stats struct {
 	DeadLetters      atomic.Uint64
 }
 type Worker struct {
+	OnEvent func(kind string)
 	Stats        *Stats
 	Queue        *spool.Queue
 	Transport    *Client
@@ -65,8 +66,14 @@ func (w *Worker) Run(ctx context.Context) error {
 		}
 	}
 }
+func (w *Worker) emit(kind string) {
+	if w.OnEvent != nil {
+		w.OnEvent(kind)
+	}
+}
 func (w *Worker) process(ctx context.Context, item *spool.Claimed) error {
 	if item.Envelope.ID == "" || len(item.Envelope.Payload) == 0 || !json.Valid(item.Envelope.Payload) {
+		w.emit("deadletter-corrupt")
 		return w.Queue.Abandon(item, "corrupt")
 	}
 	// Raw records are arrays; outbound payloads are objects. Do not upload arrays.
@@ -76,9 +83,11 @@ func (w *Worker) process(ctx context.Context, item *spool.Claimed) error {
 			if ctx.Err() != nil {
 				return w.Queue.Release(item)
 			}
+			w.emit("deadletter-transform")
 			return w.Queue.Abandon(item, "transform")
 		}
 		if !json.Valid(outbound) || len(outbound) == 0 || outbound[0] != '{' {
+			w.emit("deadletter-invalid")
 			return w.Queue.Abandon(item, "invalid-outbound")
 		}
 		item.Envelope.Payload = outbound
@@ -86,6 +95,7 @@ func (w *Worker) process(ctx context.Context, item *spool.Claimed) error {
 			return err
 		}
 	} else if item.Envelope.Payload[0] != '{' {
+		w.emit("deadletter-invalid")
 		return w.Queue.Abandon(item, "invalid-payload")
 	}
 	err := w.Transport.Upload(ctx, item.Envelope.Payload)
@@ -96,6 +106,7 @@ func (w *Worker) process(ctx context.Context, item *spool.Claimed) error {
 		if w.Stats != nil {
 			w.Stats.DeliveredBatches.Add(1)
 		}
+		w.emit("uploaded-202")
 		return nil
 	}
 	if ctx.Err() != nil {
@@ -112,6 +123,7 @@ func (w *Worker) process(ctx context.Context, item *spool.Claimed) error {
 		if w.Stats != nil {
 			w.Stats.DeadLetters.Add(1)
 		}
+		w.emit("deadletter-http")
 		return nil
 	}
 	attempt := item.Envelope.Attempt + 1
@@ -153,5 +165,6 @@ func (w *Worker) process(ctx context.Context, item *spool.Claimed) error {
 	if err = w.Queue.Save(item); err != nil {
 		return err
 	}
+	w.emit("upload-retry")
 	return w.Queue.Release(item)
 }
