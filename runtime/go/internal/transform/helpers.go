@@ -159,13 +159,14 @@ func preview(v any)(any,bool){
  if utf8.RuneCountInString(value)>2048{return shortRune(value,2048),true}
  return value,false
 }
+func headerScalar(v any)string{if b,ok:=v.(bool);ok{if b{return "true"};return "false"};return stringVal(v)}
 func headerValue(v any)string{
  switch t:=v.(type){
  case []any:
   out:=[]string{}
-  for _,item:=range t{switch item.(type){case string,bool,int,int64,float64,json.Number:out=append(out,stringVal(item))}}
+  for _,item:=range t{switch item.(type){case string,bool,int,int64,float64,json.Number:out=append(out,headerScalar(item))}}
   return strings.Join(out,", ")
- case string,bool,int,int64,float64,json.Number:return stringVal(t)
+ case string,bool,int,int64,float64,json.Number:return headerScalar(t)
  default:return ""
  }
 }
