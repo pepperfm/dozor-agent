@@ -7,8 +7,8 @@
 - Совместимый с PHP SDK TCP протокол v1, включая XXH128, PING, ACK и 1 MiB лимит; только localhost.
 - Конкурентный ingest, ограничения клиентов и таймауты. ACK только после durable записи.
 - Spool с атомарной записью, fsync, lock одного процесса, queue/processing/failed, bounded capacity и восстановлением после сбоя.
-- Go transformer (traces, spans, lifecycle, nested records, exceptions, truncation) с **9 PHP-generated golden fixtures** в CI.
-- Независимый HTTP worker: Bearer token, 202, 429/5xx, Retry-After, backoff+jitter, dead-letter и сохранение outbound payload между попытками.
+- Go transformer (traces, spans, lifecycle, nested records, exceptions, truncation) с **11 PHP-generated golden fixtures** в CI.
+- Независимый HTTP worker: Bearer token, 202, 429/5xx, Retry-After с отложенной spool-попыткой (не блокирует другие батчи), backoff+jitter, dead-letter и сохранение outbound payload между попытками.
 - Периодические heartbeat, JSON runtime state, `status --json/--strict`, интерактивный `--debug` TUI и безопасные headless логи.
 - GitHub Actions: Go race/integration tests, PHP SDK PHPUnit, golden-drift gate, Linux/macOS × AMD64/ARM64. Бинарники публикуются при release tag.
 - systemd unit, установщик с SHA256, инструкции для Sail.
@@ -52,4 +52,6 @@ PHP интеграция **не переписывалась**. `php artisan doz
 
 Подтверждение `2:OK` означает только **надёжную локальную запись**. HTTP `202` означает приём сервером, не финальную обработку. Доставка **at-least-once**, не exactly-once; дедупликация выполняется принимающим Dozor Server.
 
-Функциональная совместимость трансформации подтверждена дифференциальными тестами для девяти сценариев. Это не доказательство полной эквивалентности всех редких комбинаций 1500+ строк PHP transformer. Отдельная проверка Laravel сервера находится в `pepperfm/dozor/tests/Feature/Api/IngestV1Test.php`. Численные результаты CPU/RSS и latency baseline не выдумываем: для них есть воспроизводимые тесты, но измерение на одинаковом оборудовании остаётся отдельной задачей.
+Функциональная совместимость трансформации подтверждена дифференциальными тестами для одиннадцати сценариев. Это не доказательство полной эквивалентности всех редких комбинаций 1500+ строк PHP transformer. Отдельная проверка Laravel сервера находится в `pepperfm/dozor/tests/Feature/Api/IngestV1Test.php`. Численные результаты CPU/RSS и latency baseline не выдумываем: для них есть воспроизводимые тесты, но измерение на одинаковом оборудовании остаётся отдельной задачей.
+
+Дополнительный сквозной тест PHP-клиент → Go → **реальный** Laravel ingest → PostgreSQL добавлен в `pepperfm/dozor/tests/E2E/AgentSandboxFlowTest.php` и подключён в серверный workflow. Пока приватный GitHub Actions job завершается до появления runner/steps, его прохождение **не подтверждено**; это отдельный обязательный gate перед объявлением полной готовности.
