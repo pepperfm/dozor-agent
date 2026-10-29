@@ -132,7 +132,7 @@ final class TraceBatchTransformer
 
         // Preserve the first record even if the batch did not include a terminal
         // request/job. It will attach to the canonical root at dashboard read time.
-        if ($isChildFragment || in_array($rootType, ['query', 'cache', 'outgoing_http', 'exception'], true)) {
+        if ($isChildFragment || in_array($rootType, ['query', 'cache', 'outgoing_http', 'exception', 'queue_state'], true)) {
             $firstPayload = is_array($rootPayload) ? $rootPayload : [];
             $firstOffsetMs = $this->resolveOffsetMs(
                 is_string(Arr::get($rootRecord, 'happened_at')) ? Arr::get($rootRecord, 'happened_at') : null,
@@ -498,6 +498,27 @@ final class TraceBatchTransformer
                     'source' => Arr::get($payload, 'source'),
                 ],
             ],
+            'queue_state' => [
+                'id' => $this->recordSpanId($record),
+                'parent_span_id' => $parentSpanId,
+                'kind' => 'queue_state',
+                'name' => (string) Arr::get($payload, 'name', 'Queue'),
+                'start_offset_ms' => $offsetMs,
+                'duration_ms' => 0,
+                'connection' => (string) Arr::get($payload, 'connection', 'default'),
+                'normalized_signature' => null,
+                'sql_text' => null,
+                'rows_count' => null,
+                'service' => null,
+                'queue' => (string) Arr::get($payload, 'queue', 'default'),
+                'method' => null,
+                'status_code' => null,
+                'metadata' => [
+                    'size' => Arr::get($payload, 'size'),
+                    'worker' => Arr::get($payload, 'worker'),
+                    'server' => Arr::get($payload, 'server'),
+                ],
+            ],
             'job', 'job_child' => [
                 'id' => $this->recordSpanId($record),
                 'parent_span_id' => $parentSpanId,
@@ -516,6 +537,7 @@ final class TraceBatchTransformer
                 'metadata' => [
                     'status' => Arr::get($payload, 'status'),
                     'attempts' => Arr::get($payload, 'attempts'),
+                    'worker' => Arr::get($payload, 'worker'),
                 ],
             ],
             'cache' => [
