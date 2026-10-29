@@ -11,6 +11,10 @@ on:
       - '.github/workflows/go-agent.yml'
       - 'src/Payload.php'
       - 'src/PayloadType.php'
+      - 'src/**'
+      - 'tests/**'
+      - 'composer.json'
+      - 'composer.lock'
   pull_request:
     paths:
       - 'runtime/go/**'
@@ -29,6 +33,9 @@ jobs:
         run: |
           go mod tidy
           git diff --exit-code -- go.mod go.sum
+          unformatted="$(find . -type f -name '*.go' -not -path './dist/*' -print0 | xargs -0 gofmt -l)"
+          if [ -n "$unformatted" ]; then printf '%s\\n' "$unformatted"; exit 1; fi
+          go vet ./...
           go test -race -count=1 ./...
       - name: Build local contract binary
         working-directory: runtime/go
