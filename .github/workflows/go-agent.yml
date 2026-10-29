@@ -60,7 +60,9 @@ jobs:
           php-version: '8.5'
       - name: Install PHP transformer dependencies
         run: composer install --no-interaction --prefer-dist --no-progress
-      - name: Generate deterministic reference fixtures
+      - name: Generate candidate fixtures
+        run: DOZOR_GENERATE_GOLDENS=1 php runtime/go/tests/generate_goldens.php
+      - name: Verify checked-in PHP reference fixtures
         run: php -d zend.assertions=1 -d assert.exception=1 runtime/go/tests/generate_goldens.php
 
   cross-build:

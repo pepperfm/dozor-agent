@@ -151,6 +151,103 @@ $cases = [
             'payload' => ['operation' => 'miss'],
         ],
     ],
+    'n_plus_one_headers' => array_merge(
+        [[
+            'type' => 'request',
+            'trace_id' => $id(600),
+            'record_id' => $id(601),
+            'happened_at' => '2026-10-29T02:00:00+00:00',
+            'payload' => [
+                'method' => 'POST',
+                'route_uri' => 'payments/checkout',
+                'duration_ms' => 100,
+                'headers' => ['X-Test' => str_repeat('x', 600)],
+                'request_payload' => str_repeat('p', 2400),
+                'middleware' => ['web', 'auth'],
+            ],
+        ]],
+        array_map(static fn (int $i): array => [
+            'type' => 'query',
+            'trace_id' => $id(600),
+            'record_id' => $id(610 + $i),
+            'payload' => [
+                'time_ms' => 3.5,
+                'start_offset_ms' => $i * 5,
+                'sql' => 'SELECT * FROM orders WHERE id = ?',
+                'normalized_signature' => 'SELECT * FROM orders WHERE id = ?',
+                'connection' => 'pgsql',
+            ],
+        ], range(0, 5)),
+    ),
+    'child_fragment' => [[
+        'type' => 'query',
+        'trace_id' => $id(700),
+        'record_id' => $id(701),
+        'happened_at' => '2026-10-29T02:00:00.025+00:00',
+        'payload' => [
+            'trace_started_at' => '2026-10-29T02:00:00+00:00',
+            'time_ms' => 4,
+            'sql' => 'select * from accounts where id = ?',
+            'start_offset_ms' => 25,
+        ],
+    ]],
+    'command_nested_exception' => [
+        [
+            'type' => 'command',
+            'trace_id' => $id(800),
+            'record_id' => $id(801),
+            'happened_at' => '2026-10-29T02:00:00+00:00',
+            'release' => 'v1.0.0',
+            'payload' => [
+                'name' => 'billing:reconcile',
+                'duration_ms' => 32,
+                'details' => ['exit_code' => 1],
+                'memory_peak_bytes' => 10485760,
+                'user_id' => 42,
+            ],
+        ],
+        [
+            'type' => 'job_child',
+            'trace_id' => $id(800),
+            'record_id' => $id(802),
+            'payload' => [
+                'name' => 'CalculateInvoice',
+                'queue' => 'payments',
+                'duration_ms' => 12,
+                'start_offset_us' => 1500,
+            ],
+        ],
+        [
+            'type' => 'exception',
+            'trace_id' => $id(800),
+            'record_id' => $id(803),
+            'payload' => [
+                'class' => 'RuntimeException',
+                'message' => 'charge failed',
+                'line' => 11,
+                'start_offset_ms' => 29,
+                'stacktrace' => ['#0 app', '#1 vendor'],
+            ],
+        ],
+    ],
+    'outgoing_http_headers' => [[
+        'type' => 'outgoing_http',
+        'trace_id' => $id(900),
+        'record_id' => $id(901),
+        'happened_at' => '2026-10-29T02:00:00+00:00',
+        'payload' => [
+            'method' => 'POST',
+            'url' => 'https://external.example.test/v1',
+            'status_code' => 204,
+            'host' => 'external.example.test',
+            'duration_ms' => 13,
+            'request_headers' => [
+                'Authorization' => '[REDACTED]',
+                'X-Mixed' => ['one', 2, true],
+            ],
+            'response_headers' => ['X-Result' => 'accepted'],
+        ],
+    ]],
     'span_limit' => array_merge(
         [[
             'type' => 'request',
@@ -173,6 +270,14 @@ foreach ($cases as $name => $records) {
     assert(($outbound['traces'] ?? []) !== []);
     foreach ($outbound['traces'] as $trace) {
         assert(count($trace['spans']) <= 10);
+    }
+    if (getenv('DOZOR_GENERATE_GOLDENS') === '1') {
+        echo 'GOLDEN_FIXTURE:' . $name . ':' . json_encode([
+            'input' => $records,
+            'expected' => $outbound,
+        ], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . PHP_EOL;
+
+        continue;
     }
     $fixturePath = dirname(__DIR__) . '/testdata/golden/' . $name . '.json';
     if (!is_file($fixturePath)) {
