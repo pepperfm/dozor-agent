@@ -16,6 +16,8 @@ use Illuminate\Http\Request;
 use Illuminate\Queue\Events\JobFailed;
 use Illuminate\Queue\Events\JobProcessed;
 use Illuminate\Queue\Events\JobProcessing;
+use Illuminate\Queue\Events\Looping;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Arr;
 use Throwable;
 
@@ -40,6 +42,9 @@ class Dozor implements DozorContract
      * @var array<string, float>
      */
     private array $jobStartedAt = [];
+
+    /** @var array<string, float> */
+    private array $queueSnapshotAt = [];
 
     private ?string $activeJobTraceId = null;
 
@@ -393,6 +398,57 @@ class Dozor implements DozorContract
         ]);
     }
 
+    public function recordQueueLoop(Looping $event): bool
+    {
+        if (!$this->enabled() || $this->config('filtering.ignore_queue_jobs', false)) {
+            return false;
+        }
+
+        $interval = max(10, (int) $this->config('instrumentation.queue_snapshot_interval_seconds', 30));
+        $now = microtime(true);
+        $connection = $event->connectionName;
+        $queues = array_filter(array_map('trim', explode(',', $event->queue ?: 'default')));
+        $captured = false;
+
+        foreach ($queues as $queue) {
+            $key = $connection . ':' . $queue;
+            if ($now - ($this->queueSnapshotAt[$key] ?? 0.0) < $interval) {
+                continue;
+            }
+
+            $this->queueSnapshotAt[$key] = $now;
+
+            try {
+                $size = Queue::connection($connection)->size($queue);
+                if (!is_numeric($size)) {
+                    continue;
+                }
+
+                $this->report([
+                    'type' => 'queue_state',
+                    'trace_id' => $this->makeTraceId(),
+                    'happened_at' => $this->isoTime(),
+                    'app' => $this->config('app_name'),
+                    'environment' => $this->config('environment'),
+                    'server' => $this->config('server'),
+                    'payload' => [
+                        'name' => 'Queue ' . $queue,
+                        'queue' => $queue,
+                        'connection' => $connection,
+                        'size' => max(0, (int) $size),
+                        'worker' => substr(hash('xxh128', (string) $this->config('server') . ':' . getmypid()), 0, 16),
+                        'server' => (string) $this->config('server'),
+                    ],
+                ]);
+                $captured = true;
+            } catch (Throwable $e) {
+                $this->reportRuntimeException('queue_snapshot', $e);
+            }
+        }
+
+        return $captured;
+    }
+
     public function recordJobStarted(JobProcessing $event): void
     {
         if (!$this->enabled() || $this->config('filtering.ignore_queue_jobs', false)) {
@@ -442,6 +498,7 @@ class Dozor implements DozorContract
                     'connection' => $event->connectionName,
                     'status' => $event instanceof JobFailed ? 'failed' : 'processed',
                     'attempts' => $event->job->attempts(),
+                    'worker' => substr(hash('xxh128', (string) $this->config('server') . ':' . getmypid()), 0, 16),
                     'sampling_dropped' => $this->samplingDropped,
                     'request_started_at' => \Illuminate\Support\Carbon::createFromTimestamp($startedAt)->format('Y-m-d\\TH:i:s.uP'),
                     'duration_ms' => round((microtime(true) - $startedAt) * 1000, 2),
