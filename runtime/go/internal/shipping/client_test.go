@@ -43,3 +43,15 @@ func TestRetryAfterParser(t *testing.T){
  if got:=retryAfter("5",now);got!=5*time.Second{t.Fatal(got)}
  if got:=retryAfter("nonsense",now);got!=0{t.Fatal(got)}
 }
+
+func TestHTTP429PreservesRetryAfterForDurableSpool(t *testing.T){
+ server:=httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter,_ *http.Request){
+  w.Header().Set("Retry-After","7");w.WriteHeader(429)
+ }));defer server.Close()
+ client:=Client{URL:server.URL,Token:"secret",Attempts:1}
+ err:=client.Upload(context.Background(),json.RawMessage(`{"v":1}`))
+ var throttled *HTTPError
+ if !errors.As(err,&throttled)||!throttled.Retryable||throttled.RetryAfter!=7*time.Second{
+  t.Fatalf("expected 7s retry after, got %+v",err)
+ }
+}

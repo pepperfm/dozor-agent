@@ -15,7 +15,7 @@ import(
 )
 
 // HTTPError separates retryable remote responses from permanent validation failures.
-type HTTPError struct{ Status int; Retryable bool }
+type HTTPError struct{ Status int; Retryable bool; RetryAfter time.Duration }
 func(e *HTTPError)Error()string{return fmt.Sprintf("ingest HTTP status %d (retryable=%t)",e.Status,e.Retryable)}
 type Client struct{
  URL string
@@ -49,8 +49,8 @@ func(c *Client)Upload(ctx context.Context,payload json.RawMessage)error{
    _,_=io.Copy(io.Discard,io.LimitReader(response.Body,4096));_ = response.Body.Close()
    if response.StatusCode>=200&&response.StatusCode<300{return nil}
    retry=response.StatusCode==429||response.StatusCode>=500
-   lastErr=&HTTPError{Status:response.StatusCode,Retryable:retry}
    if retry{delay=retryAfter(response.Header.Get("Retry-After"),time.Now())}
+   lastErr=&HTTPError{Status:response.StatusCode,Retryable:retry,RetryAfter:delay}
   }
   if !retry{return lastErr}
   if attempt==attempts{break}

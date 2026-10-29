@@ -62,6 +62,8 @@ func(w *Worker)process(ctx context.Context,item *spool.Claimed)error{
  backoff:=base*time.Duration(1<<min(attempt-1,10))
  if backoff>capDelay{backoff=capDelay}
  backoff=time.Duration(rand.Int63n(int64(backoff)+1))
+ if errors.As(err,&httpErr)&&httpErr.RetryAfter>backoff{backoff=httpErr.RetryAfter}
+ if backoff>capDelay{backoff=capDelay}
  item.Envelope.Attempt=attempt
  item.Envelope.LastFailedAt=float64(time.Now().UnixNano())/1e9
  item.Envelope.NextAttemptAt=float64(time.Now().Add(backoff).UnixNano())/1e9
