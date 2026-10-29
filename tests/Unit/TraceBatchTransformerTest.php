@@ -156,6 +156,7 @@ final class TraceBatchTransformerTest extends TestCase
                 'trace_id' => 'trace-source-2',
                 'happened_at' => $startedAt->copy()->addMilliseconds(80)->format('Y-m-d\\TH:i:s.uP'),
                 'payload' => [
+                    'start_offset_ms' => 80,
                     'sql' => 'select * from users where id = ?',
                     'time_ms' => 9.4,
                     'connection' => 'pgsql',
@@ -166,6 +167,7 @@ final class TraceBatchTransformerTest extends TestCase
                 'trace_id' => 'trace-source-2',
                 'happened_at' => $startedAt->copy()->addMilliseconds(95)->format('Y-m-d\\TH:i:s.uP'),
                 'payload' => [
+                    'start_offset_ms' => 95,
                     'operation' => 'hit',
                     'key_hash' => 'abc123',
                     'store' => 'redis',
@@ -176,6 +178,7 @@ final class TraceBatchTransformerTest extends TestCase
                 'trace_id' => 'trace-source-2',
                 'happened_at' => $startedAt->copy()->addMilliseconds(110)->format('Y-m-d\\TH:i:s.uP'),
                 'payload' => [
+                    'start_offset_ms' => 110,
                     'url' => 'https://billing.example.test/api/check',
                     'host' => 'billing.example.test',
                     'method' => 'GET',
