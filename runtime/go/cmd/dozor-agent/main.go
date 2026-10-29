@@ -72,7 +72,7 @@ func run()error{
  writer:=&state.Writer{Path:*statePath,ShipperEnabled:shippingEnabled}
  events:=make(chan tui.Event,128)
  terminal:=*debug&&tui.IsTerminal(os.Stdout)
- srv:=&ingest.Server{Listener:ln,Queue:q,TokenHash:hash,MaxClients:*maxClients,Debug:*debug&&!terminal,Events:events}
+ srv:=&ingest.Server{Listener:ln,Queue:q,TokenHash:hash,MaxClients:*maxClients,BatchSize:envInt("DOZOR_AGENT_SHIP_BATCH_SIZE",100),Debug:*debug&&!terminal,Events:events}
 
  var workerWG sync.WaitGroup
  if shippingEnabled{

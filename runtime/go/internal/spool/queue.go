@@ -70,13 +70,34 @@ func writeAtomic(target string,contents []byte)error{
 }
 // Enqueue persists an immutable outbound/record payload before allowing TCP ACK.
 func(q *Queue) Enqueue(payload json.RawMessage)(string,error){
+ ids,err:=q.EnqueueMany([]json.RawMessage{payload});if err!=nil{return "",err}
+ return ids[0],nil
+}
+// EnqueueMany reserves capacity for all chunks and ACK can only follow when all
+// payloads were persisted. Partial errors are rolled back where possible.
+func(q *Queue) EnqueueMany(payloads []json.RawMessage)([]string,error){
+ if len(payloads)==0{return nil,errors.New("empty batch")}
  q.mu.Lock();defer q.mu.Unlock()
- pending,failed,err:=q.count();if err!=nil{return "",err}
- if pending+failed>=q.max{return "",ErrCapacity}
- e:=Envelope{ID:id(),CreatedAt:float64(time.Now().UnixNano())/1e9,Payload:payload}
- body,err:=json.Marshal(e);if err!=nil{return "",err}
- path:=filepath.Join(q.root,"queue",fmt.Sprintf("%d-%s.json",time.Now().Unix(),e.ID))
- return e.ID,writeAtomic(path,append(body,'\n'))
+ pending,failed,err:=q.count();if err!=nil{return nil,err}
+ if pending+failed+len(payloads)>q.max{return nil,ErrCapacity}
+ names:=make([]string,0,len(payloads))
+ ids:=make([]string,0,len(payloads))
+ for _,payload:=range payloads{
+  if !json.Valid(payload){return nil,errors.New("invalid spool payload")}
+ }
+ for _,payload:=range payloads{
+  batchID:=id()
+  envelope:=Envelope{ID:batchID,CreatedAt:float64(time.Now().UnixNano())/1e9,Payload:payload}
+  body,err:=json.Marshal(envelope);if err!=nil{rollback(names);return nil,err}
+  name:=filepath.Join(q.root,"queue",fmt.Sprintf("%d-%s.json",time.Now().Unix(),batchID))
+  if err=writeAtomic(name,append(body,'\n'));err!=nil{rollback(names);return nil,err}
+  names=append(names,name);ids=append(ids,batchID)
+ }
+ return ids,nil
+}
+func rollback(paths []string){
+ for _,path:=range paths{_ = os.Remove(path)}
+ if len(paths)>0{_ = syncDir(filepath.Dir(paths[0]))}
 }
 // Pending lists raw envelopes in lexical order. No upload worker exists in this stage.
 func(q *Queue) Pending()([]string,error){

@@ -18,6 +18,7 @@ type Server struct{
  Queue *spool.Queue
  TokenHash string
  MaxClients int
+ BatchSize int
  Debug bool
  Events chan<- tui.Event
  Received atomic.Uint64
@@ -56,9 +57,14 @@ func(s *Server)handle(c net.Conn){
  records,ping,err:=protocol.Decode(c,s.TokenHash)
  if err==nil&&!ping{
   // ACK follows durable persistence; raw records are not outbound traces.
-  var body []byte
-  body,err=json.Marshal(records)
-  if err==nil{_,err=s.Queue.Enqueue(json.RawMessage(body))}
+  batchSize:=s.BatchSize;if batchSize<1{batchSize=100}
+  chunks:=make([]json.RawMessage,0,(len(records)+batchSize-1)/batchSize)
+  for i:=0;i<len(records);i+=batchSize{
+   end:=i+batchSize;if end>len(records){end=len(records)}
+   body,e:=json.Marshal(records[i:end]);if e!=nil{err=e;break}
+   chunks=append(chunks,json.RawMessage(body))
+  }
+  if err==nil&&len(chunks)>0{_,err=s.Queue.EnqueueMany(chunks)}
  }
  if err!=nil{
   s.Rejected.Add(1);s.publish("rejected")

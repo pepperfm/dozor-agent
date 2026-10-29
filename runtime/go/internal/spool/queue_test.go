@@ -28,3 +28,12 @@ func TestLegacyEnvelope(t *testing.T){
  e,err:=q.Read(filepath.Join(dir,"queue","legacy.json"))
  if err!=nil||e.Attempt!=1{t.Fatalf("legacy: %v %v",e,err)}
 }
+
+func TestEnqueueManyCapacityAllOrNothing(t *testing.T){
+ q,err:=Open(t.TempDir(),2);if err!=nil{t.Fatal(err)};defer q.Close()
+ ids,err:=q.EnqueueMany([]json.RawMessage{json.RawMessage(`[]`),json.RawMessage(`[]`)})
+ if err!=nil||len(ids)!=2{t.Fatalf("batch %v %v",ids,err)}
+ _,err=q.EnqueueMany([]json.RawMessage{json.RawMessage(`[]`),json.RawMessage(`[]`)})
+ if !errors.Is(err,ErrCapacity){t.Fatalf("expected capacity, got %v",err)}
+ count,_,err:=q.Count();if err!=nil||count!=2{t.Fatalf("spool corrupted: %d %v",count,err)}
+}
