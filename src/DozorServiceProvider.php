@@ -41,6 +41,7 @@ use Illuminate\Log\Events\MessageLogged;
 use Illuminate\Queue\Events\JobFailed;
 use Illuminate\Queue\Events\JobProcessed;
 use Illuminate\Queue\Events\JobProcessing;
+use Illuminate\Queue\Events\Looping;
 use Illuminate\Routing\Events\PreparingResponse;
 use Illuminate\Routing\Events\ResponsePrepared;
 use Illuminate\Routing\Router;
@@ -237,6 +238,7 @@ class DozorServiceProvider extends ServiceProvider
             Event::listen(\Illuminate\Mail\Events\MessageSent::class, [$framework, 'messageSent']);
             Event::listen(\Illuminate\Notifications\Events\NotificationSent::class, [$framework, 'notificationSent']);
         }
+        Event::listen(Looping::class, [$this->app->make(QueueWatcher::class), 'looping']);
         Event::listen(JobProcessing::class, [$this->app->make(QueueWatcher::class), 'started']);
         Event::listen(JobProcessed::class, [$this->app->make(QueueWatcher::class), 'finished']);
         Event::listen(JobFailed::class, [$this->app->make(QueueWatcher::class), 'finished']);
