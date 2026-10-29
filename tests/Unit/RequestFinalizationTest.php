@@ -13,6 +13,59 @@ use Symfony\Component\HttpFoundation\Response;
 
 final class RequestFinalizationTest extends TestCase
 {
+    public function test_artisan_called_inside_http_is_recorded_as_child_event_not_command_root(): void
+    {
+        $records = [];
+        $ingest = $this->createMock(IngestContract::class);
+        $ingest->method('write')->willReturnCallback(static function (array $record) use (&$records): void {
+            $records[] = $record;
+        });
+
+        $core = new Dozor($ingest, [
+            'enabled' => true,
+            'app_name' => 'test',
+            'instrumentation' => ['capture_framework_events' => true],
+        ]);
+        $request = Request::create('https://example.test/api', 'GET');
+        $request->setRouteResolver(static fn() => null);
+        $request->setUserResolver(static fn() => null);
+        $start = microtime(true) - 0.05;
+        $core->beginRequest($request, $start);
+        $core->recordFrameworkEvent('artisan.cache:clear', [
+            'exit_code' => 0,
+            'duration_ms' => 5,
+        ]);
+        $core->finishRequest($request, new Response('ok', 200), $start);
+
+        self::assertCount(2, $records);
+        self::assertSame('event', $records[0]['type']);
+        self::assertSame('request', $records[1]['type']);
+        self::assertSame($records[1]['trace_id'], $records[0]['trace_id']);
+    }
+
+    public function test_top_level_artisan_command_keeps_its_own_command_root(): void
+    {
+        $records = [];
+        $ingest = $this->createMock(IngestContract::class);
+        $ingest->method('write')->willReturnCallback(static function (array $record) use (&$records): void {
+            $records[] = $record;
+        });
+
+        $core = new Dozor($ingest, [
+            'enabled' => true,
+            'instrumentation' => ['capture_framework_events' => true],
+        ]);
+        $core->startFrameworkCommand('cache:clear');
+        $core->recordFrameworkEvent('artisan.cache:clear', [
+            'exit_code' => 0,
+            'duration_ms' => 5,
+        ]);
+        $core->finishFrameworkCommand('cache:clear');
+
+        self::assertCount(1, $records);
+        self::assertSame('command', $records[0]['type']);
+    }
+
     public function test_begin_request_does_not_resolve_routing_or_authentication_before_middleware(): void
     {
         $records = [];
