@@ -63,18 +63,41 @@ Go запускается с `--env-file=/path/to/.env`: читает тольк
 Дополнительный сквозной тест PHP-клиент → Go → **реальный** Laravel ingest → PostgreSQL добавлен в `pepperfm/dozor/tests/E2E/AgentSandboxFlowTest.php` и подключён в серверный workflow. Пока приватный GitHub Actions job завершается до появления runner/steps, его прохождение **не подтверждено**; это отдельный обязательный gate перед объявлением полной готовности.
 
 
-### Публикация бинарников для Pechka без CI (macOS)
+### Публикация Linux-бинарников в Beget S3 (как в SPP)
 
-С локального `master` репозитория `dozor-agent` (нужны `go`, `gh auth login`):
+При каждом изменении `runtime/go/**` в `master` GitHub Actions автоматически
+тестирует и собирает Linux `amd64` / `arm64` и публикует бинарники в
+**тот же Beget S3**, который используется StreamsPanel Player, но под отдельным
+префиксом `dozor-agent/linux/<commit-sha>/`. Обновления SPP в
+`player/windows/x64/` не затрагиваются.
 
+GitHub Secrets для репозитория **dozor-agent** (скопировать из SPP):
+- `SPP_S3_ACCESS_KEY_ID`
+- `SPP_S3_SECRET_ACCESS_KEY`
+
+Доступ к S3 осуществляет Bun-скрипт
+`runtime/go/scripts/publish-s3.mjs` (тот же path-style signed adapter,
+что в `streams-panel-player/scripts/windows-standalone/publish-s3.mjs`).
+Адреса артефактов:
+```text
+https://s3.streams-panel.ru/dozor-agent/linux/<commit-sha>/dozor-agent-linux-amd64
+https://s3.streams-panel.ru/dozor-agent/linux/<commit-sha>/dozor-agent-linux-arm64
+https://s3.streams-panel.ru/dozor-agent/linux/<commit-sha>/SHA256SUMS
+https://s3.streams-panel.ru/dozor-agent/linux/<commit-sha>/manifest.json
+```
+Публичные URL и SHA-256 дополнительно проверяются после загрузки.
+Повторный запуск не перезаписывает ранее опубликованные артефакты с
+другим содержимым. Откройте summary успешного Workflow: он напечатает
+готовые `PECHKA_DOZOR_AGENT_*_URL`, `*_SHA256` и
+`PECHKA_DOZOR_SDK_SHA`, связанные **одним** commit SHA.
+
+При необходимости workflow можно запустить вручную (`workflow_dispatch`).
+Локальная сборка и публикация из актуального чистого master доступна через:
 ```bash
 cd runtime/go
-./scripts/publish-pechka-release.sh v0.2.0-pechka.1
+./scripts/publish-pechka-release.sh
 ```
-
-Скрипт проверяет чистый и актуальный `master`, запускает `go test ./...`,
-собирает Linux arm64/amd64, проверяет SHA-256 и создаёт **новый**
-GitHub Release без Actions. Затем печатает `PECHKA_DOZOR_AGENT_*_URL`,
-`PECHKA_DOZOR_AGENT_*_SHA256` и `PECHKA_DOZOR_SDK_SHA` для
-конфигурации панели. Существующий релиз не перезаписывается; для обновления
-создайте новый тег. Это действие администратора панели, а не её пользователей.
+Для локальной публикации нужно заранее экспортировать AWS credentials
+под именами `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`;
+для GitHub Actions используются указанные выше GitHub Secrets.
+Ни секреты, ни presigned URLs не выводятся в лог.
