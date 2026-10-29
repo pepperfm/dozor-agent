@@ -15,6 +15,26 @@ use RuntimeException;
 
 final class TelemetryPrivacyTest extends TestCase
 {
+    public function test_opt_in_log_messages_redact_json_credentials_and_signed_urls(): void
+    {
+        $records = [];
+        $ingest = $this->createMock(IngestContract::class);
+        $ingest->method('write')->willReturnCallback(static function (array $record) use (&$records): void {
+            $records[] = $record;
+        });
+        $core = new Dozor($ingest, [
+            'enabled' => true,
+            'instrumentation' => ['capture_logs' => true],
+            'sampling' => ['logs' => 1.0],
+        ]);
+
+        $core->recordLogMessage('error', 'Failed: {"api_key":"json-secret"} at https://api.test?token=url-secret');
+        self::assertCount(1, $records);
+        self::assertStringNotContainsString('json-secret', $records[0]['payload']['message']);
+        self::assertStringNotContainsString('url-secret', $records[0]['payload']['message']);
+        self::assertStringContainsString('[CREDENTIAL REDACTED]', $records[0]['payload']['message']);
+    }
+
     public function test_outgoing_http_drops_unrecognized_metadata_and_scrubs_credentials(): void
     {
         $records = [];
