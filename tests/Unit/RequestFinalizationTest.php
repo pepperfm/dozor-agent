@@ -44,6 +44,51 @@ final class RequestFinalizationTest extends TestCase
         self::assertSame('profile.show', $records[0]['payload']['route_name']);
     }
 
+    public function test_it_records_actual_404_419_and_500_status_codes_without_fabricating_success(): void
+    {
+        foreach ([404, 419, 500] as $status) {
+            $records = [];
+            $ingest = $this->createMock(IngestContract::class);
+            $ingest->method('write')->willReturnCallback(static function (array $record) use (&$records): void {
+                $records[] = $record;
+            });
+
+            $core = new Dozor($ingest, ['enabled' => true, 'app_name' => 'test']);
+            $request = Request::create('/failing-path', 'POST');
+            $startedAt = microtime(true) - 0.015;
+
+            $core->beginRequest($request, $startedAt);
+            $core->finishRequest($request, new Response('', $status), $startedAt);
+
+            self::assertCount(1, $records, "Expected exactly one terminal HTTP event for $status");
+            self::assertSame('request', $records[0]['type']);
+            self::assertSame($status, $records[0]['payload']['status']);
+            self::assertGreaterThanOrEqual(0, $records[0]['payload']['duration_ms']);
+        }
+    }
+
+    public function test_request_exception_summary_strips_signed_urls(): void
+    {
+        $records = [];
+        $ingest = $this->createMock(IngestContract::class);
+        $ingest->method('write')->willReturnCallback(static function (array $record) use (&$records): void {
+            $records[] = $record;
+        });
+
+        $core = new Dozor($ingest, ['enabled' => true, 'app_name' => 'test']);
+        $request = Request::create('/error', 'GET');
+        $startedAt = microtime(true) - 0.005;
+        $core->beginRequest($request, $startedAt);
+
+        $error = new \RuntimeException('Request failed https://api.example.test/token?password=secret-token');
+        $core->finishRequest($request, new Response('error', 500), $startedAt, $error);
+
+        self::assertCount(1, $records);
+        self::assertSame(500, $records[0]['payload']['status']);
+        self::assertStringNotContainsString('secret-token', $records[0]['payload']['exception_message']);
+        self::assertStringContainsString('[URL REDACTED]', $records[0]['payload']['exception_message']);
+    }
+
     public function test_route_and_authenticated_user_are_resolved_after_request_middleware(): void
     {
         $records = [];
