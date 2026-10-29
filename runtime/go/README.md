@@ -11,7 +11,7 @@ This is migration work, not a drop-in replacement for the PHP daemon. The PHP La
 - Atomic JSON runtime state file; `status --json` reports local queue counts, shipping disabled.
 - Independent HTTP shipping client module with tests; not attached until transformer contract parity.
 - Experimental Linux/macOS AMD64 and ARM64 CI artifacts, not production releases.
-- PHP SDK Payload wire smoke and Go unit/race tests.
+- PHP SDK Payload wire smoke, Go unit/race tests and 5 checked-in deterministic PHP-generated golden fixtures validated by CI.
 
 ## NOT implemented (do not switch real applications)
 
@@ -39,4 +39,4 @@ php runtime/go/tests/php_client.php
 
 Keep experimental spool separate from `DOZOR_AGENT_SPOOL_PATH`. Do not start PHP/Go agents on the same TCP port. PHP daemon remains the production fallback.
 
-Next: generate PHP transformer goldens; implement Go parity and server E2E; only then enable shipping and production rollout.
+Next: implement Go transformer parity against the checked-in fixtures under `runtime/go/testdata/golden/`, broaden fixtures to additional edge cases, and validate PHP SDK → Go → Dozor Server end-to-end. Only then enable shipping and production rollout.
