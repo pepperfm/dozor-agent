@@ -118,6 +118,10 @@ func (s *Server) handle(c net.Conn) {
 	_, _ = io.WriteString(c, "2:OK")
 }
 func (s *Server) publish(kind string) {
+	if s.Debug {
+		// Event kinds are fixed internal identifiers, never user payloads.
+		log.Printf("ingest event=%s", kind)
+	}
 	if s.Events != nil {
 		select {
 		case s.Events <- tui.Event{Time: time.Now(), Kind: kind}:

@@ -139,6 +139,10 @@ func run() error {
 		client := &shipping.Client{URL: remoteURL, Token: remoteToken, HTTP: httpClient, Attempts: envInt("DOZOR_AGENT_SHIP_RETRY_ATTEMPTS", 3)}
 		worker := &shipping.Worker{
 			OnEvent: func(kind string) {
+				if *debug && !terminal {
+					// Log sanitized event names, not outbound payloads or tokens.
+					log.Printf("shipping event=%s", kind)
+				}
 				select {
 				case events <- tui.Event{Time: time.Now(), Kind: kind}:
 				default:

@@ -72,14 +72,15 @@ func TestPermanentStatusToDeadLetter(t *testing.T) {
 	defer server.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
-	w := &Worker{Queue: q, Transport: &Client{URL: server.URL, Token: "secret", Attempts: 1}, Transformer: &fixedTransformer{}, PollInterval: 5 * time.Millisecond}
+	stats := &Stats{}
+	w := &Worker{Queue: q, Transport: &Client{URL: server.URL, Token: "secret", Attempts: 1}, Transformer: &fixedTransformer{}, PollInterval: 5 * time.Millisecond, Stats: stats}
 	err = w.Run(ctx)
 	if err != nil && !errors.Is(err, context.Canceled) {
 		t.Fatal(err)
 	}
 	_, failed, _ := q.Count()
-	if failed != 1 {
-		t.Fatalf("expected deadletter, got %d", failed)
+	if failed != 1 || stats.DeadLetters.Load() != 1 {
+		t.Fatalf("expected one persisted deadletter, on-disk=%d counter=%d", failed, stats.DeadLetters.Load())
 	}
 }
 

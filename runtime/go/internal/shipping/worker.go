@@ -71,10 +71,22 @@ func (w *Worker) emit(kind string) {
 		w.OnEvent(kind)
 	}
 }
+
+// Persist dead letters before reporting them. The total is an observation,
+// not a promise, so failed disk moves must never increment it.
+func (w *Worker) abandon(item *spool.Claimed, reason, event string) error {
+	if err := w.Queue.Abandon(item, reason); err != nil {
+		return err
+	}
+	if w.Stats != nil {
+		w.Stats.DeadLetters.Add(1)
+	}
+	w.emit(event)
+	return nil
+}
 func (w *Worker) process(ctx context.Context, item *spool.Claimed) error {
 	if item.Envelope.ID == "" || len(item.Envelope.Payload) == 0 || !json.Valid(item.Envelope.Payload) {
-		w.emit("deadletter-corrupt")
-		return w.Queue.Abandon(item, "corrupt")
+		return w.abandon(item, "corrupt", "deadletter-corrupt")
 	}
 	// Raw records are arrays; outbound payloads are objects. Do not upload arrays.
 	if item.Envelope.Payload[0] == '[' {
@@ -83,20 +95,17 @@ func (w *Worker) process(ctx context.Context, item *spool.Claimed) error {
 			if ctx.Err() != nil {
 				return w.Queue.Release(item)
 			}
-			w.emit("deadletter-transform")
-			return w.Queue.Abandon(item, "transform")
+			return w.abandon(item, "transform", "deadletter-transform")
 		}
 		if !json.Valid(outbound) || len(outbound) == 0 || outbound[0] != '{' {
-			w.emit("deadletter-invalid")
-			return w.Queue.Abandon(item, "invalid-outbound")
+			return w.abandon(item, "invalid-outbound", "deadletter-invalid")
 		}
 		item.Envelope.Payload = outbound
 		if err = w.Queue.Save(item); err != nil {
 			return err
 		}
 	} else if item.Envelope.Payload[0] != '{' {
-		w.emit("deadletter-invalid")
-		return w.Queue.Abandon(item, "invalid-payload")
+		return w.abandon(item, "invalid-payload", "deadletter-invalid")
 	}
 	err := w.Transport.Upload(ctx, item.Envelope.Payload)
 	if err == nil {
@@ -117,14 +126,7 @@ func (w *Worker) process(ctx context.Context, item *spool.Claimed) error {
 	}
 	var httpErr *HTTPError
 	if errors.As(err, &httpErr) && !httpErr.Retryable {
-		if e := w.Queue.Abandon(item, "http-permanent"); e != nil {
-			return e
-		}
-		if w.Stats != nil {
-			w.Stats.DeadLetters.Add(1)
-		}
-		w.emit("deadletter-http")
-		return nil
+		return w.abandon(item, "http-permanent", "deadletter-http")
 	}
 	attempt := item.Envelope.Attempt + 1
 	maxAttempts := w.MaxAttempts
@@ -132,13 +134,7 @@ func (w *Worker) process(ctx context.Context, item *spool.Claimed) error {
 		maxAttempts = 8
 	}
 	if attempt >= maxAttempts {
-		if e := w.Queue.Abandon(item, "max-attempts"); e != nil {
-			return e
-		}
-		if w.Stats != nil {
-			w.Stats.DeadLetters.Add(1)
-		}
-		return nil
+		return w.abandon(item, "max-attempts", "deadletter-retries")
 	}
 	base := w.RetryBase
 	if base <= 0 {
