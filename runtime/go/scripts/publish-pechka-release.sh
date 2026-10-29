@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Manual fallback for the GitHub Actions S3 publisher.
-# In normal use master pushes publish automatically after the Go tests.
+# Local release from an already-pushed, clean master commit.
+# No GitHub Actions or server-side Go compiler needed.
 set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
@@ -22,5 +22,6 @@ git -C "$root" fetch origin master --quiet
 }
 
 go test ./...
+bun test scripts/publish-s3.test.mjs
 bash scripts/build-pechka.sh dist/pechka
 bun scripts/publish-s3.mjs

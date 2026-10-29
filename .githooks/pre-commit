@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Local tests + Linux cross-build for staged Dozor Go changes. No S3 upload.
+set -euo pipefail
+
+root="$(git rev-parse --show-toplevel)"
+cd "$root"
+
+if git diff --cached --quiet -- runtime/go .githooks; then
+  exit 0
+fi
+
+command -v go >/dev/null || { echo "Dozor pre-commit: Go не установлен" >&2; exit 1; }
+command -v bun >/dev/null || { echo "Dozor pre-commit: Bun не установлен" >&2; exit 1; }
+
+cd runtime/go
+echo "Dozor pre-commit: Go tests"
+go test ./...
+echo "Dozor pre-commit: S3 publisher tests"
+bun test scripts/publish-s3.test.mjs
+echo "Dozor pre-commit: Linux amd64/arm64 binaries"
+bash scripts/build-pechka.sh dist/pechka
+echo "Dozor pre-commit: OK (публикация только отдельной командой)"

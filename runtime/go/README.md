@@ -63,41 +63,61 @@ Go запускается с `--env-file=/path/to/.env`: читает тольк
 Дополнительный сквозной тест PHP-клиент → Go → **реальный** Laravel ingest → PostgreSQL добавлен в `pepperfm/dozor/tests/E2E/AgentSandboxFlowTest.php` и подключён в серверный workflow. Пока приватный GitHub Actions job завершается до появления runner/steps, его прохождение **не подтверждено**; это отдельный обязательный gate перед объявлением полной готовности.
 
 
-### Публикация Linux-бинарников в Beget S3 (как в SPP)
+### Локальный pre-commit и публикация Go Agent в Beget S3
 
-При каждом изменении `runtime/go/**` в `master` GitHub Actions автоматически
-тестирует и собирает Linux `amd64` / `arm64` и публикует бинарники в
-**тот же Beget S3**, который используется StreamsPanel Player, но под отдельным
-префиксом `dozor-agent/linux/<commit-sha>/`. Обновления SPP в
-`player/windows/x64/` не затрагиваются.
+**GitHub Actions в `dozor-agent` не используются.** Build и публикация
+выполняются на Mac владельца, как в SPP, а целевые VPS только скачивают
+готовые Linux-бинарники.
 
-GitHub Secrets для репозитория **dozor-agent** (скопировать из SPP):
-- `SPP_S3_ACCESS_KEY_ID`
-- `SPP_S3_SECRET_ACCESS_KEY`
+Один раз в корне репозитория подключить отслеживаемые Git hooks:
 
-Доступ к S3 осуществляет Bun-скрипт
-`runtime/go/scripts/publish-s3.mjs` (тот же path-style signed adapter,
-что в `streams-panel-player/scripts/windows-standalone/publish-s3.mjs`).
-Адреса артефактов:
+```bash
+git config core.hooksPath .githooks
+```
+
+При коммите изменений `runtime/go/` или `.githooks/` срабатывает
+`.githooks/pre-commit`: `go test ./...`, тесты S3 publisher через Bun,
+кросс-сборка Linux AMD64/ARM64 и проверка SHA-256. Бинарники остаются в
+игнорируемом `runtime/go/dist/pechka/`; **pre-commit ничего не загружает
+в сеть**. Для проверки и сборки вручную:
+
+```bash
+cd runtime/go
+go test ./...
+bun test scripts/publish-s3.test.mjs
+bash scripts/build-pechka.sh dist/pechka
+```
+
+После коммита и **push в master** запускать публикацию вручную (нужны
+Go 1.23+, Bun и AWS S3 credentials в окружении):
+
+```bash
+export AWS_ACCESS_KEY_ID='...'
+export AWS_SECRET_ACCESS_KEY='...'
+git push origin master
+cd runtime/go
+./scripts/publish-pechka-release.sh
+```
+
+Скрипт требует чистый checkout и синхронизацию с `origin/master`,
+повторно выполняет тесты и сборку, а затем использует портированный из SPP
+Bun S3 publisher: path-style signed requests, проверка SHA-256, повторные
+попытки и проверка публичных HTTPS-ответов. Не переносите GitHub Secrets
+из SPP: для **локальной** публикации нужны локальные AWS-переменные.
+Не добавляйте credentials в файлы репозитория и Git.
+
+Бакет SPP тот же, префикс отдельный:
 ```text
 https://s3.streams-panel.ru/dozor-agent/linux/<commit-sha>/dozor-agent-linux-amd64
 https://s3.streams-panel.ru/dozor-agent/linux/<commit-sha>/dozor-agent-linux-arm64
 https://s3.streams-panel.ru/dozor-agent/linux/<commit-sha>/SHA256SUMS
 https://s3.streams-panel.ru/dozor-agent/linux/<commit-sha>/manifest.json
 ```
-Публичные URL и SHA-256 дополнительно проверяются после загрузки.
-Повторный запуск не перезаписывает ранее опубликованные артефакты с
-другим содержимым. Откройте summary успешного Workflow: он напечатает
-готовые `PECHKA_DOZOR_AGENT_*_URL`, `*_SHA256` и
-`PECHKA_DOZOR_SDK_SHA`, связанные **одним** commit SHA.
+После завершения скрипт печатает настройки
+`PECHKA_DOZOR_AGENT_*_URL`, `*_SHA256` и `PECHKA_DOZOR_SDK_SHA`,
+привязанные к одному исходному SHA. Их нужно перенести в `.env` Печки;
+на сервере Go не компилируется.
 
-При необходимости workflow можно запустить вручную (`workflow_dispatch`).
-Локальная сборка и публикация из актуального чистого master доступна через:
-```bash
-cd runtime/go
-./scripts/publish-pechka-release.sh
-```
-Для локальной публикации нужно заранее экспортировать AWS credentials
-под именами `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`;
-для GitHub Actions используются указанные выше GitHub Secrets.
-Ни секреты, ни presigned URLs не выводятся в лог.
+Публикация выполняется **после** коммита: до коммита нет нового SHA
+для адреса артефакта. Из-за сетевых ошибок и необходимости секретов не
+следует запускать S3 upload непосредственно из `pre-commit`.
