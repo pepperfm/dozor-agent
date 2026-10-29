@@ -248,6 +248,41 @@ $cases = [
             'response_headers' => ['X-Result' => 'accepted'],
         ],
     ]],
+    'headers_order_preview' => [[
+        'type' => 'request',
+        'trace_id' => $id(920),
+        'record_id' => $id(921),
+        'happened_at' => '2026-10-29T02:00:00+00:00',
+        'payload' => [
+            'method' => 'GET',
+            'duration_ms' => 4,
+            'headers' => [
+                'Z-First' => 'retain',
+                ...array_combine(
+                    array_map(static fn (int $i): string => sprintf('A-%02d', $i), range(0, 31)),
+                    array_fill(0, 32, 'value'),
+                ),
+            ],
+            'request_payload' => [
+                'z' => 1,
+                'a' => ['b' => 2, 'a' => 3],
+                'slash' => 'a/b',
+            ],
+        ],
+    ]],
+    'outgoing_http_invalid_status' => [[
+        'type' => 'outgoing_http',
+        'trace_id' => $id(930),
+        'record_id' => $id(931),
+        'happened_at' => '2026-10-29T02:00:00+00:00',
+        'payload' => [
+            'url' => 'https://partner.example.test/v1/charge',
+            'method' => 'POST',
+            'status' => 'failed',
+            'status_code' => 502,
+            'duration_ms' => 19,
+        ],
+    ]],
     'span_limit' => array_merge(
         [[
             'type' => 'request',
