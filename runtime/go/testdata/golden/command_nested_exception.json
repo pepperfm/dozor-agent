@@ -1,0 +1,179 @@
+{
+  "input": [
+    {
+      "type": "command",
+      "trace_id": "01J00000000000000000000800",
+      "record_id": "01J00000000000000000000801",
+      "happened_at": "2026-10-29T02:00:00+00:00",
+      "release": "v1.0.0",
+      "payload": {
+        "name": "billing:reconcile",
+        "duration_ms": 32,
+        "details": {
+          "exit_code": 1
+        },
+        "memory_peak_bytes": 10485760,
+        "user_id": 42
+      }
+    },
+    {
+      "type": "job_child",
+      "trace_id": "01J00000000000000000000800",
+      "record_id": "01J00000000000000000000802",
+      "payload": {
+        "name": "CalculateInvoice",
+        "queue": "payments",
+        "duration_ms": 12,
+        "start_offset_us": 1500
+      }
+    },
+    {
+      "type": "exception",
+      "trace_id": "01J00000000000000000000800",
+      "record_id": "01J00000000000000000000803",
+      "payload": {
+        "class": "RuntimeException",
+        "message": "charge failed",
+        "line": 11,
+        "start_offset_ms": 29,
+        "stacktrace": [
+          "#0 app",
+          "#1 vendor"
+        ]
+      }
+    }
+  ],
+  "expected": {
+    "v": 1,
+    "app": {
+      "name": "fixture-app",
+      "token": "fixture-token-not-a-secret"
+    },
+    "environment": "testing",
+    "server": "fixture-host",
+    "sent_at": "2026-10-29T02:00:00+00:00",
+    "traces": [
+      {
+        "id": "01J00000000000000000000800",
+        "type": "command",
+        "started_at": "2026-10-29T02:00:00+00:00",
+        "method": "CLI",
+        "route": "billing:reconcile",
+        "uri": "queue://billing:reconcile",
+        "controller": null,
+        "host": "fixture-host",
+        "status_code": 200,
+        "duration_ms": 32,
+        "db_time_ms": 0,
+        "external_time_ms": 0,
+        "job_time_ms": 0,
+        "cpu_time_ms": 0,
+        "memory_mb": 10,
+        "request_id": null,
+        "release": "v1.0.0",
+        "user_label": "42",
+        "tenant_label": null,
+        "deployment_id": null,
+        "spans": [
+          {
+            "id": "0170352CD3D868D5CA07DA995E",
+            "parent_span_id": null,
+            "kind": "command",
+            "name": "billing:reconcile",
+            "start_offset_ms": 0,
+            "duration_ms": 32,
+            "connection": null,
+            "normalized_signature": null,
+            "sql_text": null,
+            "rows_count": null,
+            "service": null,
+            "queue": null,
+            "method": null,
+            "status_code": null,
+            "metadata": {
+              "source_type": "command",
+              "started_at": "2026-10-29T02:00:00+00:00",
+              "exit_code": 1
+            }
+          },
+          {
+            "id": "01J00000000000000000000802",
+            "parent_span_id": "0170352CD3D868D5CA07DA995E",
+            "kind": "job",
+            "name": "CalculateInvoice",
+            "start_offset_ms": 2,
+            "duration_ms": 12,
+            "connection": null,
+            "normalized_signature": null,
+            "sql_text": null,
+            "rows_count": null,
+            "service": null,
+            "queue": "payments",
+            "method": null,
+            "status_code": null,
+            "metadata": {
+              "status": null,
+              "attempts": null
+            }
+          },
+          {
+            "id": "01J00000000000000000000803",
+            "parent_span_id": "0170352CD3D868D5CA07DA995E",
+            "kind": "exception",
+            "name": "RuntimeException",
+            "start_offset_ms": 29,
+            "duration_ms": 1,
+            "connection": null,
+            "normalized_signature": null,
+            "sql_text": null,
+            "rows_count": null,
+            "service": null,
+            "queue": null,
+            "method": null,
+            "status_code": null,
+            "metadata": {
+              "message": "charge failed",
+              "file": null,
+              "line": 11,
+              "stacktrace": [
+                "#0 app",
+                "#1 vendor"
+              ]
+            }
+          }
+        ],
+        "tags": [],
+        "meta": {
+          "source_trace_id": "01J00000000000000000000800",
+          "repeated_query_groups": 0,
+          "suspected_n_plus_one_groups": 0,
+          "records_count": 3,
+          "dropped_spans": 0,
+          "transport_dropped_records": 0,
+          "span_limit": 10,
+          "sampling_dropped": [],
+          "cache_capture_enabled": false,
+          "cache_sample_rate": 1,
+          "middleware": [],
+          "route_name": null,
+          "request_headers": [],
+          "request_headers_truncated": false,
+          "request_payload_preview": null,
+          "request_payload_preview_truncated": false,
+          "lifecycle_ready": false,
+          "lifecycle_stages": []
+        },
+        "exception": {
+          "fingerprint": null,
+          "title": "RuntimeException",
+          "class": "RuntimeException",
+          "message": "charge failed",
+          "file": null,
+          "line": 11,
+          "owner": "platform",
+          "regression": false
+        }
+      }
+    ]
+  }
+}

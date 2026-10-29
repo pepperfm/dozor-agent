@@ -1,0 +1,94 @@
+{
+  "input": [
+    {
+      "type": "query",
+      "trace_id": "01J00000000000000000000700",
+      "record_id": "01J00000000000000000000701",
+      "happened_at": "2026-10-29T02:00:00.025+00:00",
+      "payload": {
+        "trace_started_at": "2026-10-29T02:00:00+00:00",
+        "time_ms": 4,
+        "sql": "select * from accounts where id = ?",
+        "start_offset_ms": 25
+      }
+    }
+  ],
+  "expected": {
+    "v": 1,
+    "app": {
+      "name": "fixture-app",
+      "token": "fixture-token-not-a-secret"
+    },
+    "environment": "testing",
+    "server": "fixture-host",
+    "sent_at": "2026-10-29T02:00:00+00:00",
+    "traces": [
+      {
+        "id": "01J00000000000000000000700",
+        "type": "query",
+        "started_at": "2026-10-29T02:00:00+00:00",
+        "method": "CLI",
+        "route": "/",
+        "uri": "internal://agent",
+        "controller": null,
+        "host": "fixture-host",
+        "status_code": 200,
+        "duration_ms": 4,
+        "db_time_ms": 4,
+        "external_time_ms": 0,
+        "job_time_ms": 0,
+        "cpu_time_ms": 0,
+        "memory_mb": 0,
+        "request_id": null,
+        "release": null,
+        "user_label": null,
+        "tenant_label": null,
+        "deployment_id": null,
+        "spans": [
+          {
+            "id": "01J00000000000000000000701",
+            "parent_span_id": null,
+            "kind": "query",
+            "name": "select * from accounts where id = ?",
+            "start_offset_ms": 25,
+            "duration_ms": 4,
+            "connection": null,
+            "normalized_signature": "select * from accounts where id = ?",
+            "sql_text": "select * from accounts where id = ?",
+            "rows_count": null,
+            "service": null,
+            "queue": null,
+            "method": null,
+            "status_code": null,
+            "metadata": {
+              "bindings_count": 0,
+              "source": null
+            }
+          }
+        ],
+        "tags": [],
+        "meta": {
+          "source_trace_id": "01J00000000000000000000700",
+          "repeated_query_groups": 0,
+          "suspected_n_plus_one_groups": 0,
+          "records_count": 1,
+          "dropped_spans": 0,
+          "transport_dropped_records": 0,
+          "span_limit": 10,
+          "sampling_dropped": [],
+          "cache_capture_enabled": false,
+          "cache_sample_rate": 1,
+          "middleware": [],
+          "route_name": null,
+          "request_headers": [],
+          "request_headers_truncated": false,
+          "request_payload_preview": null,
+          "request_payload_preview_truncated": false,
+          "lifecycle_ready": false,
+          "lifecycle_stages": []
+        },
+        "exception": null
+      }
+    ]
+  }
+}

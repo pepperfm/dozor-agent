@@ -1,0 +1,298 @@
+{
+  "input": [
+    {
+      "type": "request",
+      "trace_id": "01J00000000000000000000600",
+      "record_id": "01J00000000000000000000601",
+      "happened_at": "2026-10-29T02:00:00+00:00",
+      "payload": {
+        "method": "POST",
+        "route_uri": "payments/checkout",
+        "duration_ms": 100,
+        "headers": {
+          "X-Test": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        },
+        "request_payload": "pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp",
+        "middleware": [
+          "web",
+          "auth"
+        ]
+      }
+    },
+    {
+      "type": "query",
+      "trace_id": "01J00000000000000000000600",
+      "record_id": "01J00000000000000000000610",
+      "payload": {
+        "time_ms": 3.5,
+        "start_offset_ms": 0,
+        "sql": "SELECT * FROM orders WHERE id = ?",
+        "normalized_signature": "SELECT * FROM orders WHERE id = ?",
+        "connection": "pgsql"
+      }
+    },
+    {
+      "type": "query",
+      "trace_id": "01J00000000000000000000600",
+      "record_id": "01J00000000000000000000611",
+      "payload": {
+        "time_ms": 3.5,
+        "start_offset_ms": 5,
+        "sql": "SELECT * FROM orders WHERE id = ?",
+        "normalized_signature": "SELECT * FROM orders WHERE id = ?",
+        "connection": "pgsql"
+      }
+    },
+    {
+      "type": "query",
+      "trace_id": "01J00000000000000000000600",
+      "record_id": "01J00000000000000000000612",
+      "payload": {
+        "time_ms": 3.5,
+        "start_offset_ms": 10,
+        "sql": "SELECT * FROM orders WHERE id = ?",
+        "normalized_signature": "SELECT * FROM orders WHERE id = ?",
+        "connection": "pgsql"
+      }
+    },
+    {
+      "type": "query",
+      "trace_id": "01J00000000000000000000600",
+      "record_id": "01J00000000000000000000613",
+      "payload": {
+        "time_ms": 3.5,
+        "start_offset_ms": 15,
+        "sql": "SELECT * FROM orders WHERE id = ?",
+        "normalized_signature": "SELECT * FROM orders WHERE id = ?",
+        "connection": "pgsql"
+      }
+    },
+    {
+      "type": "query",
+      "trace_id": "01J00000000000000000000600",
+      "record_id": "01J00000000000000000000614",
+      "payload": {
+        "time_ms": 3.5,
+        "start_offset_ms": 20,
+        "sql": "SELECT * FROM orders WHERE id = ?",
+        "normalized_signature": "SELECT * FROM orders WHERE id = ?",
+        "connection": "pgsql"
+      }
+    },
+    {
+      "type": "query",
+      "trace_id": "01J00000000000000000000600",
+      "record_id": "01J00000000000000000000615",
+      "payload": {
+        "time_ms": 3.5,
+        "start_offset_ms": 25,
+        "sql": "SELECT * FROM orders WHERE id = ?",
+        "normalized_signature": "SELECT * FROM orders WHERE id = ?",
+        "connection": "pgsql"
+      }
+    }
+  ],
+  "expected": {
+    "v": 1,
+    "app": {
+      "name": "fixture-app",
+      "token": "fixture-token-not-a-secret"
+    },
+    "environment": "testing",
+    "server": "fixture-host",
+    "sent_at": "2026-10-29T02:00:00+00:00",
+    "traces": [
+      {
+        "id": "01J00000000000000000000600",
+        "type": "request",
+        "started_at": "2026-10-29T02:00:00+00:00",
+        "method": "POST",
+        "route": "payments/checkout",
+        "uri": "internal://agent",
+        "controller": null,
+        "host": "fixture-host",
+        "status_code": 200,
+        "duration_ms": 100,
+        "db_time_ms": 24,
+        "external_time_ms": 0,
+        "job_time_ms": 0,
+        "cpu_time_ms": 0,
+        "memory_mb": 0,
+        "request_id": null,
+        "release": null,
+        "user_label": null,
+        "tenant_label": null,
+        "deployment_id": null,
+        "spans": [
+          {
+            "id": "028A64C6F831FAC33B95D56CE7",
+            "parent_span_id": null,
+            "kind": "http",
+            "name": "payments/checkout",
+            "start_offset_ms": 0,
+            "duration_ms": 100,
+            "connection": null,
+            "normalized_signature": null,
+            "sql_text": null,
+            "rows_count": null,
+            "service": null,
+            "queue": null,
+            "method": "POST",
+            "status_code": 200,
+            "metadata": {
+              "source_type": "request",
+              "started_at": "2026-10-29T02:00:00+00:00"
+            }
+          },
+          {
+            "id": "01J00000000000000000000610",
+            "parent_span_id": "028A64C6F831FAC33B95D56CE7",
+            "kind": "query",
+            "name": "SELECT * FROM orders WHERE id = ?",
+            "start_offset_ms": 0,
+            "duration_ms": 4,
+            "connection": "pgsql",
+            "normalized_signature": "SELECT * FROM orders WHERE id = ?",
+            "sql_text": "SELECT * FROM orders WHERE id = ?",
+            "rows_count": null,
+            "service": null,
+            "queue": null,
+            "method": null,
+            "status_code": null,
+            "metadata": {
+              "bindings_count": 0,
+              "source": null
+            }
+          },
+          {
+            "id": "01J00000000000000000000611",
+            "parent_span_id": "028A64C6F831FAC33B95D56CE7",
+            "kind": "query",
+            "name": "SELECT * FROM orders WHERE id = ?",
+            "start_offset_ms": 5,
+            "duration_ms": 4,
+            "connection": "pgsql",
+            "normalized_signature": "SELECT * FROM orders WHERE id = ?",
+            "sql_text": "SELECT * FROM orders WHERE id = ?",
+            "rows_count": null,
+            "service": null,
+            "queue": null,
+            "method": null,
+            "status_code": null,
+            "metadata": {
+              "bindings_count": 0,
+              "source": null
+            }
+          },
+          {
+            "id": "01J00000000000000000000612",
+            "parent_span_id": "028A64C6F831FAC33B95D56CE7",
+            "kind": "query",
+            "name": "SELECT * FROM orders WHERE id = ?",
+            "start_offset_ms": 10,
+            "duration_ms": 4,
+            "connection": "pgsql",
+            "normalized_signature": "SELECT * FROM orders WHERE id = ?",
+            "sql_text": "SELECT * FROM orders WHERE id = ?",
+            "rows_count": null,
+            "service": null,
+            "queue": null,
+            "method": null,
+            "status_code": null,
+            "metadata": {
+              "bindings_count": 0,
+              "source": null
+            }
+          },
+          {
+            "id": "01J00000000000000000000613",
+            "parent_span_id": "028A64C6F831FAC33B95D56CE7",
+            "kind": "query",
+            "name": "SELECT * FROM orders WHERE id = ?",
+            "start_offset_ms": 15,
+            "duration_ms": 4,
+            "connection": "pgsql",
+            "normalized_signature": "SELECT * FROM orders WHERE id = ?",
+            "sql_text": "SELECT * FROM orders WHERE id = ?",
+            "rows_count": null,
+            "service": null,
+            "queue": null,
+            "method": null,
+            "status_code": null,
+            "metadata": {
+              "bindings_count": 0,
+              "source": null
+            }
+          },
+          {
+            "id": "01J00000000000000000000614",
+            "parent_span_id": "028A64C6F831FAC33B95D56CE7",
+            "kind": "query",
+            "name": "SELECT * FROM orders WHERE id = ?",
+            "start_offset_ms": 20,
+            "duration_ms": 4,
+            "connection": "pgsql",
+            "normalized_signature": "SELECT * FROM orders WHERE id = ?",
+            "sql_text": "SELECT * FROM orders WHERE id = ?",
+            "rows_count": null,
+            "service": null,
+            "queue": null,
+            "method": null,
+            "status_code": null,
+            "metadata": {
+              "bindings_count": 0,
+              "source": null
+            }
+          },
+          {
+            "id": "01J00000000000000000000615",
+            "parent_span_id": "028A64C6F831FAC33B95D56CE7",
+            "kind": "query",
+            "name": "SELECT * FROM orders WHERE id = ?",
+            "start_offset_ms": 25,
+            "duration_ms": 4,
+            "connection": "pgsql",
+            "normalized_signature": "SELECT * FROM orders WHERE id = ?",
+            "sql_text": "SELECT * FROM orders WHERE id = ?",
+            "rows_count": null,
+            "service": null,
+            "queue": null,
+            "method": null,
+            "status_code": null,
+            "metadata": {
+              "bindings_count": 0,
+              "source": null
+            }
+          }
+        ],
+        "tags": [],
+        "meta": {
+          "source_trace_id": "01J00000000000000000000600",
+          "repeated_query_groups": 1,
+          "suspected_n_plus_one_groups": 1,
+          "records_count": 7,
+          "dropped_spans": 0,
+          "transport_dropped_records": 0,
+          "span_limit": 10,
+          "sampling_dropped": [],
+          "cache_capture_enabled": false,
+          "cache_sample_rate": 1,
+          "middleware": [
+            "web",
+            "auth"
+          ],
+          "route_name": null,
+          "request_headers": {
+            "X-Test": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          },
+          "request_headers_truncated": true,
+          "request_payload_preview": "pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp",
+          "request_payload_preview_truncated": true,
+          "lifecycle_ready": false,
+          "lifecycle_stages": []
+        },
+        "exception": null
+      }
+    ]
+  }
+}
