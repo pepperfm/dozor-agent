@@ -24,12 +24,14 @@ type Snapshot struct {
   QueueDepth int `json:"queue_depth"`
   FailedQueueDepth int `json:"failed_queue_depth"`
   UptimeSeconds int64 `json:"uptime_seconds"`
+  DeliveredBatches uint64 `json:"delivered_batches"`
+  FailedUploads uint64 `json:"failed_uploads"`
   ReceivedRecords uint64 `json:"received_records"`
   RejectedClients uint64 `json:"rejected_clients"`
  } `json:"metrics"`
 }
-type Writer struct{Path string;mu sync.Mutex;startedAt time.Time}
-func(w *Writer)Mark(status,listen string,queued,failed int,received,rejected uint64)error{
+type Writer struct{Path string;ShipperEnabled bool;mu sync.Mutex;startedAt time.Time}
+func(w *Writer)Mark(status,listen string,queued,failed int,received,rejected,delivered,uploads uint64)error{
  w.mu.Lock();defer w.mu.Unlock()
  now:=time.Now().UTC()
  if w.startedAt.IsZero(){w.startedAt=now}
@@ -41,12 +43,14 @@ func(w *Writer)Mark(status,listen string,queued,failed int,received,rejected uin
  if status=="stopped"{snapshot.Lifecycle.StoppedAt=now.Format(time.RFC3339)}
  snapshot.Context.Runtime="go-ingest-only"
  snapshot.Context.ListenOn=listen
- snapshot.Context.ShipperEnabled=false
+ snapshot.Context.ShipperEnabled=w.ShipperEnabled
  snapshot.Metrics.QueueDepth=queued
  snapshot.Metrics.FailedQueueDepth=failed
  snapshot.Metrics.UptimeSeconds=int64(now.Sub(w.startedAt).Seconds())
  snapshot.Metrics.ReceivedRecords=received
  snapshot.Metrics.RejectedClients=rejected
+ snapshot.Metrics.DeliveredBatches=delivered
+ snapshot.Metrics.FailedUploads=uploads
  return w.write(snapshot)
 }
 func(w *Writer)write(snapshot Snapshot)error{

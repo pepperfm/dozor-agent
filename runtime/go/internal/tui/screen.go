@@ -43,7 +43,8 @@ func render(s state.Snapshot,events []Event)string{
  b.WriteString(line(width,"  LISTENER   "+s.Context.ListenOn))
  b.WriteString("\x1b[36m├"+border+"┤\x1b[0m\n")
  b.WriteString(line(width,fmt.Sprintf("  RECEIVED  %-10d REJECTED  %-10d QUEUED  %-6d",s.Metrics.ReceivedRecords,s.Metrics.RejectedClients,s.Metrics.QueueDepth)))
- b.WriteString(line(width,fmt.Sprintf("  DEAD LETTER %-10d  SHIPPING  disabled (migration)",s.Metrics.FailedQueueDepth)))
+ b.WriteString(line(width,fmt.Sprintf("  DEAD LETTER %-5d  DELIVERED %-7d  UPLOAD ERRORS %-5d",s.Metrics.FailedQueueDepth,s.Metrics.DeliveredBatches,s.Metrics.FailedUploads)))
+ if s.Context.ShipperEnabled{b.WriteString(line(width,"  SHIPPING   active (HTTP v1)"))}else{b.WriteString(line(width,"  SHIPPING   disabled (ingest-only)"))}
  b.WriteString("\x1b[36m├"+border+"┤\x1b[0m\n")
  b.WriteString(line(width,"  RECENT EVENTS"))
  for _,event:=range events{b.WriteString(line(width,fmt.Sprintf("  %s   %-14s",event.Time.Format("15:04:05"),event.Kind)))}

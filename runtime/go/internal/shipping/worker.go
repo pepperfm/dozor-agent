@@ -5,11 +5,14 @@ import(
  "errors"
  "fmt"
  "math/rand"
+ "sync/atomic"
  "time"
  "github.com/pepperfm/dozor-agent/runtime/go/internal/spool"
 )
 type Transformer interface{Transform(context.Context,json.RawMessage)(json.RawMessage,error)}
+type Stats struct {DeliveredBatches atomic.Uint64;FailedUploads atomic.Uint64;DeadLetters atomic.Uint64}
 type Worker struct{
+ Stats *Stats
  Queue *spool.Queue
  Transport *Client
  Transformer Transformer
@@ -46,13 +49,14 @@ func(w *Worker)process(ctx context.Context,item *spool.Claimed)error{
   if err=w.Queue.Save(item);err!=nil{return err}
  }else if item.Envelope.Payload[0]!='{'{return w.Queue.Abandon(item,"invalid-payload")}
  err:=w.Transport.Upload(ctx,item.Envelope.Payload)
- if err==nil{return w.Queue.Complete(item)}
+ if err==nil{if e:=w.Queue.Complete(item);e!=nil{return e};if w.Stats!=nil{w.Stats.DeliveredBatches.Add(1)};return nil}
  if ctx.Err()!=nil{return w.Queue.Release(item)}
+ if w.Stats!=nil{w.Stats.FailedUploads.Add(1)}
  var httpErr *HTTPError
- if errors.As(err,&httpErr)&&!httpErr.Retryable{return w.Queue.Abandon(item,"http-permanent")}
+ if errors.As(err,&httpErr)&&!httpErr.Retryable{if e:=w.Queue.Abandon(item,"http-permanent");e!=nil{return e};if w.Stats!=nil{w.Stats.DeadLetters.Add(1)};return nil}
  attempt:=item.Envelope.Attempt+1
  maxAttempts:=w.MaxAttempts;if maxAttempts<1{maxAttempts=8}
- if attempt>=maxAttempts{return w.Queue.Abandon(item,"max-attempts")}
+ if attempt>=maxAttempts{if e:=w.Queue.Abandon(item,"max-attempts");e!=nil{return e};if w.Stats!=nil{w.Stats.DeadLetters.Add(1)};return nil}
  base:=w.RetryBase;if base<=0{base=500*time.Millisecond}
  capDelay:=w.RetryCap;if capDelay<=0{capDelay=30*time.Second}
  backoff:=base*time.Duration(1<<min(attempt-1,10))
