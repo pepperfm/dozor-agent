@@ -54,7 +54,7 @@ func Decode(reader io.Reader, expectedHash string) ([]json.RawMessage, bool, err
 		return nil, false, ErrInvalidFrame
 	}
 	var records []json.RawMessage
-	if err := json.Unmarshal([]byte(parts[2]), &records); err != nil || records == nil {
+	if err := json.Unmarshal([]byte(parts[2]), &records); err != nil || len(records) == 0 {
 		return nil, false, ErrInvalidFrame
 	}
 	for _, record := range records {

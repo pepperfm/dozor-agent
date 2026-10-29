@@ -21,6 +21,7 @@ func TestDecode(t *testing.T) {
 		{"bad version", frame("v2:abcdef0:PING"), "abcdef0", false, true, 0},
 		{"bad json", frame("v1:abcdef0:[1]"), "abcdef0", false, true, 0},
 		{"empty", "0:", "abcdef0", false, true, 0},
+		{"empty-record-list", frame("v1:abcdef0:[]"), "abcdef0", false, true, 0},
 		{"oversize", "1048577:", "abcdef0", false, true, 0},
 		{"slow eof", "20:v1:abcdef0:[]", "abcdef0", false, true, 0},
 		{"long length", strings.Repeat("9", 9) + ":", "abcdef0", false, true, 0},
