@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"os/signal"
 	"strconv"
 	"sync"
@@ -100,6 +101,13 @@ func run() error {
 	if *maxBatches < 1 || *maxClients < 1 {
 		return errors.New("max-batches and max-clients must be positive")
 	}
+
+	// Persist a portable absolute spool path: PHP status may have another cwd.
+	absoluteSpoolPath, err := filepath.Abs(*path)
+	if err != nil {
+		return fmt.Errorf("resolve spool path: %w", err)
+	}
+	*path = absoluteSpoolPath
 
 	q, err := spool.Open(*path, *maxBatches)
 	if err != nil {

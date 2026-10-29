@@ -55,7 +55,9 @@ final class StatusCommand extends Command
                 $spoolPath = $goSpoolPath;
             }
             $shipperEnabled = (bool) Arr::get($runtimeState, 'context.shipper_enabled', false);
-            $shipperConfigured = !$shipperEnabled || ($hostedIngestUrl !== '' && $hostedIngestToken !== '');
+            // Go validates the remote URL and bearer token before starting.
+            // PHP may run in a different process/container with no shipping credentials.
+            $shipperConfigured = $shipperEnabled;
         }
 
         $spoolQueue = new SpoolQueue($spoolPath);
