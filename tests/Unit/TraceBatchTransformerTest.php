@@ -828,4 +828,34 @@ final class TraceBatchTransformerTest extends TestCase
         self::assertSame('event', $result['traces'][0]['spans'][0]['kind']);
     }
 
+
+    public function test_queue_snapshot_is_preserved_as_distinct_telemetry_span(): void
+    {
+        $transformer = new TraceBatchTransformer('App', 'token', 'production', 'worker-1');
+        $trace = $transformer->transform([[
+            'record_id' => str()->ulid()->toString(),
+            'type' => 'queue_state',
+            'trace_id' => str()->ulid()->toString(),
+            'happened_at' => now()->toIso8601String(),
+            'payload' => [
+                'name' => 'Queue default',
+                'queue' => 'default',
+                'connection' => 'redis',
+                'size' => 7,
+                'worker' => 'worker-hash',
+                'server' => 'vps-1',
+            ],
+        ]])['traces'][0];
+
+        $snapshots = array_values(array_filter(
+            $trace['spans'],
+            static fn(array $span): bool => $span['kind'] === 'queue_state',
+        ));
+
+        self::assertCount(1, $snapshots);
+        self::assertSame('default', $snapshots[0]['queue']);
+        self::assertSame('redis', $snapshots[0]['connection']);
+        self::assertSame(7, $snapshots[0]['metadata']['size']);
+        self::assertSame('worker-hash', $snapshots[0]['metadata']['worker']);
+    }
 }
