@@ -22,7 +22,9 @@ jobs:
           go-version: '1.26.x'
       - name: Test Go packages with race detector
         working-directory: runtime/go
-        run: go test -race -count=1 ./...
+        run: |
+          go mod tidy
+          go test -race -count=1 ./...
       - name: Build local contract binary
         working-directory: runtime/go
         run: CGO_ENABLED=0 go build -trimpath -o /tmp/dozor-agent ./cmd/dozor-agent
@@ -34,7 +36,7 @@ jobs:
         run: |
           set -euo pipefail
           export DOZOR_TEST_TOKEN="dozor-go-contract-fixture"
-          export DOZOR_AGENT_TOKEN_HASH="$(php -r 'echo substr(hash("xxh128", getenv("DOZOR_TEST_TOKEN")), 0, 7);')"
+          export DOZOR_TOKEN="$DOZOR_TEST_TOKEN"
           export DOZOR_GO_SPOOL_PATH="$RUNNER_TEMP/dozor-go-spool"
           export DOZOR_INGEST_URI="127.0.0.1:4816"
           /tmp/dozor-agent --ingest-only > "$RUNNER_TEMP/dozor-agent.log" 2>&1 &
@@ -80,6 +82,7 @@ jobs:
           GOARCH: ${{ matrix.arch }}
         run: |
           mkdir -p dist
+          go mod tidy
           go build -trimpath -ldflags="-s -w" -o "dist/dozor-agent-${GOOS}-${GOARCH}" ./cmd/dozor-agent
       - uses: actions/upload-artifact@v4
         with:
