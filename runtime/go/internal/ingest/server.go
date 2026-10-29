@@ -34,7 +34,19 @@ func (s *Server) Serve(ctx context.Context) error {
 	}
 	limit := make(chan struct{}, s.MaxClients)
 	var wg sync.WaitGroup
-	go func() { <-ctx.Done(); _ = s.Listener.Close() }()
+	// A fatal Accept error must still drain accepted clients before the caller
+	// can close the spool queue. Stop the cancellation watcher on any exit.
+	done := make(chan struct{})
+	defer wg.Wait()
+	defer close(done)
+	defer s.Listener.Close()
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = s.Listener.Close()
+		case <-done:
+		}
+	}()
 	for {
 		client, err := s.Listener.Accept()
 		if err != nil {
@@ -61,7 +73,6 @@ func (s *Server) Serve(ctx context.Context) error {
 			_ = client.Close()
 		}
 	}
-	wg.Wait()
 	return nil
 }
 func (s *Server) handle(c net.Conn) {
