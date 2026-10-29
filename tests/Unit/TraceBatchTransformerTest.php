@@ -511,6 +511,23 @@ final class TraceBatchTransformerTest extends TestCase
         self::assertNotSame($request['spans'][0]['id'], $job['spans'][0]['id']);
     }
 
+    public function test_explicit_zero_duration_framework_event_remains_instantaneous(): void
+    {
+        $trace = (new TraceBatchTransformer('App', 'token', 'production', 'host'))->transform([[
+            'type' => 'event',
+            'record_id' => str()->ulid()->toString(),
+            'trace_id' => str()->ulid()->toString(),
+            'happened_at' => now()->toIso8601String(),
+            'payload' => [
+                'name' => 'schedule.skipped',
+                'duration_ms' => 0,
+            ],
+        ]])['traces'][0];
+
+        self::assertSame(0, $trace['duration_ms']);
+        self::assertSame(0, $trace['spans'][0]['duration_ms']);
+    }
+
     public function test_unmeasured_outgoing_http_does_not_invent_one_millisecond(): void
     {
         $trace = (new TraceBatchTransformer('App', 'token', 'production', 'host'))->transform([[
