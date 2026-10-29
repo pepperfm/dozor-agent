@@ -25,6 +25,10 @@ git -C "$root" fetch origin master --quiet
   echo "Локальный master отличается от origin/master. Выполните git pull." >&2
   exit 2
 }
+if git -C "$root" ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1; then
+  echo "Тег $tag уже опубликован. Используйте новый тег релиза." >&2
+  exit 2
+fi
 if gh release view "$tag" -R "$repo" >/dev/null 2>&1; then
   echo "Релиз $tag уже существует — не перезаписываем опубликованные бинарники." >&2
   exit 2

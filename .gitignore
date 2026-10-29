@@ -7,3 +7,6 @@ vendor
 .ai-factory.json
 .codex
 .claude
+
+# Compiled Linux artifacts, release SHA256 manifests
+/runtime/go/dist/
