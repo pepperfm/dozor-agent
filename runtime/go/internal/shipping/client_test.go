@@ -127,9 +127,9 @@ func TestHTTPSShippingWithValidatedTLS(t *testing.T) {
 	defer server.Close()
 
 	client := Client{
-		URL: server.URL,
-		Token: "tls-secret",
-		HTTP: server.Client(), // Trust only this test server's certificate.
+		URL:      server.URL,
+		Token:    "tls-secret",
+		HTTP:     server.Client(), // Trust only this test server's certificate.
 		Attempts: 1,
 	}
 	if err := client.Upload(context.Background(), json.RawMessage(`{"v":1,"traces":[]}`)); err != nil {
