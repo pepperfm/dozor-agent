@@ -28,7 +28,7 @@ type Envelope struct {
 type Queue struct { root string; max int; lock *os.File; mu sync.Mutex }
 func Open(root string, max int) (*Queue,error) {
  if max<1 {return nil,errors.New("max spool batches must be positive")}
- for _,sub:=range []string{"queue","failed"} {
+ for _,sub:=range []string{"queue","processing","failed"} {
   if err:=os.MkdirAll(filepath.Join(root,sub),0700);err!=nil{return nil,err}
  }
  f,err:=os.OpenFile(filepath.Join(root,".go-agent.lock"),os.O_CREATE|os.O_RDWR,0600)
@@ -47,7 +47,7 @@ func(q *Queue) Close()error{
 func(q *Queue) Count()(int,int,error){q.mu.Lock();defer q.mu.Unlock();return q.count()}
 func(q *Queue) count()(int,int,error){
  a,e:=filepath.Glob(filepath.Join(q.root,"queue","*.json"));if e!=nil{return 0,0,e}
- b,e:=filepath.Glob(filepath.Join(q.root,"failed","*.json"));return len(a),len(b),e
+ b,e:=filepath.Glob(filepath.Join(q.root,"failed","*.json"));if e!=nil{return 0,0,e};c,e:=filepath.Glob(filepath.Join(q.root,"processing","*.json"));return len(a)+len(c),len(b),e
 }
 func id()string{
  var b [8]byte
