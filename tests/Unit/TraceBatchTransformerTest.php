@@ -133,7 +133,7 @@ final class TraceBatchTransformerTest extends TestCase
             [
                 'type' => 'request',
                 'trace_id' => 'trace-source-2',
-                'happened_at' => $startedAt->toIso8601String(),
+                'happened_at' => $startedAt->format('Y-m-d\\TH:i:s.uP'),
                 'payload' => [
                     'method' => 'GET',
                     'path' => '/dashboard',
@@ -154,7 +154,7 @@ final class TraceBatchTransformerTest extends TestCase
             [
                 'type' => 'query',
                 'trace_id' => 'trace-source-2',
-                'happened_at' => $startedAt->copy()->addMilliseconds(80)->toIso8601String(),
+                'happened_at' => $startedAt->copy()->addMilliseconds(80)->format('Y-m-d\\TH:i:s.uP'),
                 'payload' => [
                     'sql' => 'select * from users where id = ?',
                     'time_ms' => 9.4,
@@ -164,7 +164,7 @@ final class TraceBatchTransformerTest extends TestCase
             [
                 'type' => 'cache',
                 'trace_id' => 'trace-source-2',
-                'happened_at' => $startedAt->copy()->addMilliseconds(95)->toIso8601String(),
+                'happened_at' => $startedAt->copy()->addMilliseconds(95)->format('Y-m-d\\TH:i:s.uP'),
                 'payload' => [
                     'operation' => 'hit',
                     'key_hash' => 'abc123',
@@ -174,7 +174,7 @@ final class TraceBatchTransformerTest extends TestCase
             [
                 'type' => 'outgoing_http',
                 'trace_id' => 'trace-source-2',
-                'happened_at' => $startedAt->copy()->addMilliseconds(110)->toIso8601String(),
+                'happened_at' => $startedAt->copy()->addMilliseconds(110)->format('Y-m-d\\TH:i:s.uP'),
                 'payload' => [
                     'url' => 'https://billing.example.test/api/check',
                     'host' => 'billing.example.test',

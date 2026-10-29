@@ -112,7 +112,7 @@ class Dozor implements DozorContract
             $this->currentRequestSuppressedReason = '';
             $this->samplingDropped = [];
 
-            if ($this->requestFilter->shouldIgnoreRequest($request)) {
+            if ($this->requestFilter->shouldIgnoreRequest($request, false)) {
                 $this->currentRequestSuppressed = true;
                 $this->currentRequestSuppressedReason = 'filter';
             } else {
@@ -303,6 +303,10 @@ class Dozor implements DozorContract
 
             // Route and authenticated user are resolved after beginRequest().
             $route = $request->route();
+            if ($this->requestFilter->shouldIgnoreRequest($request)) {
+                return;
+            }
+
             $payload = array_merge($this->currentTrace?->requestMeta ?? [], [
                 'url' => $this->safeUrl($request->fullUrl()),
                 'route_name' => $route?->getName(),

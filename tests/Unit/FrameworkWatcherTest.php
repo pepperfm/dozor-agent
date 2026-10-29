@@ -17,7 +17,7 @@ final class FrameworkWatcherTest extends TestCase
         $core = $this->createMock(DozorContract::class);
         $core->expects(self::once())->method('recordFrameworkEvent')
             ->with('schedule.finished', self::callback(static fn(array $payload): bool =>
-                $payload['task_type'] === \Illuminate\Console\Scheduling\Event::class
+                is_a($payload['task_type'], \Illuminate\Console\Scheduling\Event::class, true)
                 && $payload['duration_ms'] === 250.0
                 && !array_key_exists('command', $payload)
             ));

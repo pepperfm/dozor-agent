@@ -22,14 +22,13 @@ final readonly class RequestFilter
     {
     }
 
-    public function shouldIgnoreRequest(Request $request): bool
+    public function shouldIgnoreRequest(Request $request, bool $checkResolvedRoute = true): bool
     {
         if ($this->isIgnoredPath('/' . ltrim($request->path(), '/'))) {
             return true;
         }
 
-        $routeName = $request->route()?->getName();
-        if ($this->isIgnoredRouteName($routeName)) {
+        if ($checkResolvedRoute && $this->isIgnoredRouteName($request->route()?->getName())) {
             return true;
         }
 
