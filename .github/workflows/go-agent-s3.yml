@@ -38,6 +38,8 @@ jobs:
       - name: Test Go runtime
         working-directory: runtime/go
         run: go test ./...
+      - name: Test S3 publication contract (Bun)
+        run: bun test runtime/go/scripts/publish-s3.test.mjs
       - name: Build Linux amd64 and arm64 and verify SHA256
         run: bash runtime/go/scripts/build-pechka.sh
       - name: Publish SHA-pinned artifacts to Beget S3
