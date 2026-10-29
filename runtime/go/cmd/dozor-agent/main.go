@@ -126,8 +126,8 @@ func run() error {
 	stats := &shipping.Stats{}
 	writer := &state.Writer{
 		Path: *statePath, SpoolPath: *path, ShipperEnabled: shippingEnabled,
-		AppName: env("DOZOR_APP_NAME", env("APP_NAME", "laravel")),
-		ServerName: env("DOZOR_SERVER", hostName()),
+		AppName:     env("DOZOR_APP_NAME", env("APP_NAME", "laravel")),
+		ServerName:  env("DOZOR_SERVER", hostName()),
 		Environment: env("DOZOR_ENV", env("APP_ENV", "production")),
 	}
 	events := make(chan tui.Event, 128)
