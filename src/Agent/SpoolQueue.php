@@ -204,7 +204,15 @@ final class SpoolQueue
             JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE,
         );
 
-        file_put_contents($tempFile, $json . PHP_EOL, LOCK_EX);
+        $contents = $json . PHP_EOL;
+        // A short or failed write must never be renamed to the durable queue:
+        // the next daemon restart would otherwise mark it as corrupted and lose data.
+        $written = @file_put_contents($tempFile, $contents, LOCK_EX);
+        if ($written !== strlen($contents)) {
+            @unlink($tempFile);
+
+            throw new RuntimeException("Unable to write complete spool temp file [$tempFile]");
+        }
 
         if (!@rename($tempFile, $file)) {
             @unlink($tempFile);
