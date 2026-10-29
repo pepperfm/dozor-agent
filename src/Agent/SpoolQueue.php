@@ -42,7 +42,8 @@ final class SpoolQueue
 
     public function queuedBatchesCount(): int
     {
-        return $this->countFiles($this->queueDirectory() . DIRECTORY_SEPARATOR . '*.json');
+        return $this->countFiles($this->queueDirectory() . DIRECTORY_SEPARATOR . '*.json')
+            + $this->countFiles(rtrim($this->spoolPath, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'processing' . DIRECTORY_SEPARATOR . '*.json');
     }
 
     public function failedBatchesCount(): int
