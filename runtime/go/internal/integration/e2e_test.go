@@ -184,9 +184,9 @@ func TestSlowHTTPSReceiverDoesNotBlockLocalIngest(t *testing.T) {
 	serverDone := make(chan error, 1)
 	go func() { serverDone <- server.Serve(ctx) }()
 	worker := &shipping.Worker{
-		Queue: q,
-		Transport: &shipping.Client{URL: remote.URL, Token: token, Attempts: 1, HTTP: &http.Client{Timeout: 5 * time.Second}},
-		Transformer: &transform.Transformer{AppName: "app", AppToken: token, Environment: "test", ServerName: "node"},
+		Queue:        q,
+		Transport:    &shipping.Client{URL: remote.URL, Token: token, Attempts: 1, HTTP: &http.Client{Timeout: 5 * time.Second}},
+		Transformer:  &transform.Transformer{AppName: "app", AppToken: token, Environment: "test", ServerName: "node"},
 		PollInterval: time.Millisecond,
 	}
 	workerDone := make(chan error, 1)
