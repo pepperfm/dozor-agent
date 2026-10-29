@@ -116,7 +116,7 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, os.Interrupt)
 	defer stop()
 	stats := &shipping.Stats{}
-	writer := &state.Writer{Path: *statePath, ShipperEnabled: shippingEnabled}
+	writer := &state.Writer{Path: *statePath, SpoolPath: *path, ShipperEnabled: shippingEnabled}
 	events := make(chan tui.Event, 128)
 	terminal := *debug && tui.IsTerminal(os.Stdout)
 	srv := &ingest.Server{Listener: ln, Queue: q, TokenHash: hash, MaxClients: *maxClients, BatchSize: envInt("DOZOR_AGENT_SHIP_BATCH_SIZE", 100), Debug: *debug && !terminal, Events: events}

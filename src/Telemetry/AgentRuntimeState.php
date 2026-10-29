@@ -238,6 +238,8 @@ final class AgentRuntimeState
                 'app' => Arr::get($state, 'context.app'),
                 'environment' => Arr::get($state, 'context.environment'),
                 'shipper_enabled' => (bool) Arr::get($state, 'context.shipper_enabled', false),
+                'runtime' => Arr::get($state, 'context.runtime'),
+                'spool_path' => Arr::get($state, 'context.spool_path'),
             ],
             'metrics' => [
                 'queue_depth' => (int) Arr::get($state, 'metrics.queue_depth', 0),

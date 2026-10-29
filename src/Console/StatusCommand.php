@@ -43,8 +43,27 @@ final class StatusCommand extends Command
         $hostedIngestToken = trim((string) Arr::get($config, 'agent.shipper.ingest_token', Arr::get($config, 'token', '')));
         $shipperConfigured = !$shipperEnabled || ($hostedIngestUrl !== '' && $hostedIngestToken !== '');
 
-        $spoolQueue = new SpoolQueue($spoolPath);
         $runtimeState = (new AgentRuntimeState($statePath))->read();
+        $runtime = (string) Arr::get($runtimeState, 'context.runtime', '');
+        $isGo = $runtime === 'go' || $runtime === 'go-ingest-only';
+
+        // The Go daemon can use its own spool directory. Read its reported
+        // path instead of silently inspecting the legacy PHP queue.
+        if ($isGo) {
+            $goSpoolPath = Arr::get($runtimeState, 'context.spool_path');
+            if (is_string($goSpoolPath) && $goSpoolPath !== '') {
+                $spoolPath = $goSpoolPath;
+            }
+            $shipperEnabled = (bool) Arr::get($runtimeState, 'context.shipper_enabled', false);
+            $shipperConfigured = !$shipperEnabled || ($hostedIngestUrl !== '' && $hostedIngestToken !== '');
+        }
+
+        $spoolQueue = new SpoolQueue($spoolPath);
+        $queueDepth = $spoolQueue->queuedBatchesCount();
+        if ($isGo) {
+            $processing = glob(rtrim($spoolPath, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'processing' . DIRECTORY_SEPARATOR . '*.json');
+            $queueDepth += is_array($processing) ? count($processing) : 0;
+        }
 
         $reachable = true;
         $pingError = null;
@@ -62,6 +81,7 @@ final class StatusCommand extends Command
             'ingest_uri' => $ingestUri,
             'shipper_enabled' => $shipperEnabled,
             'shipper_configured' => $shipperConfigured,
+            'runtime' => $isGo ? $runtime : 'php',
             'shipping_warning' => $shipperConfigured ? null : 'Missing DOZOR_HOSTED_INGEST_URL or DOZOR_TOKEN',
             'spool_path' => $spoolPath,
             'state_path' => $statePath,
@@ -73,7 +93,7 @@ final class StatusCommand extends Command
                 'updated_at' => Arr::get($runtimeState, 'lifecycle.updated_at'),
             ],
             'metrics' => [
-                'queue_depth' => $spoolQueue->queuedBatchesCount(),
+                'queue_depth' => $queueDepth,
                 'failed_queue_depth' => $spoolQueue->failedBatchesCount(),
                 'dropped_batches' => (int) Arr::get($runtimeState, 'metrics.dropped_batches', 0),
                 'failed_uploads' => (int) Arr::get($runtimeState, 'metrics.failed_uploads', 0),
@@ -105,7 +125,7 @@ final class StatusCommand extends Command
 
         // --json must remain machine-readable; --strict also verifies actual remote shipping.
         if ((bool) $this->option('json')) {
-            return (bool) $this->option('strict') && (!$reachable || !$shipperConfigured)
+            return (bool) $this->option('strict') && (!$reachable || !$shipperConfigured || ($isGo && !$shipperEnabled))
                 ? self::FAILURE
                 : self::SUCCESS;
         }
@@ -137,6 +157,7 @@ final class StatusCommand extends Command
             'reachable' => Arr::get($statusReport, 'reachable'),
             'ingest_uri' => Arr::get($statusReport, 'ingest_uri'),
             'shipper_enabled' => Arr::get($statusReport, 'shipper_enabled'),
+            'runtime' => Arr::get($statusReport, 'runtime'),
             'shipper_configured' => Arr::get($statusReport, 'shipper_configured'),
             'shipping_warning' => Arr::get($statusReport, 'shipping_warning'),
             'spool_path' => Arr::get($statusReport, 'spool_path'),

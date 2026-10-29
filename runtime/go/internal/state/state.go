@@ -20,6 +20,7 @@ type Snapshot struct {
 	Context struct {
 		Runtime        string `json:"runtime"`
 		ListenOn       string `json:"listen_on"`
+		SpoolPath      string `json:"spool_path,omitempty"`
 		ShipperEnabled bool   `json:"shipper_enabled"`
 	} `json:"context"`
 	Metrics struct {
@@ -34,6 +35,7 @@ type Snapshot struct {
 }
 type Writer struct {
 	Path           string
+	SpoolPath      string
 	ShipperEnabled bool
 	mu             sync.Mutex
 	startedAt      time.Time
@@ -60,6 +62,7 @@ func (w *Writer) Mark(status, listen string, queued, failed int, received, rejec
 		snapshot.Context.Runtime = "go-ingest-only"
 	}
 	snapshot.Context.ListenOn = listen
+	snapshot.Context.SpoolPath = w.SpoolPath
 	snapshot.Context.ShipperEnabled = w.ShipperEnabled
 	snapshot.Metrics.QueueDepth = queued
 	snapshot.Metrics.FailedQueueDepth = failed
