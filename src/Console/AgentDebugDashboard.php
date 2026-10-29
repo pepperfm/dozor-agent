@@ -107,7 +107,10 @@ final class AgentDebugDashboard
         }
 
         $this->uploadFailures++;
-        $this->event('error', sprintf('Remote upload failed (attempt %d)', $attempt));
+        $metrics = (array) ($this->runtimeState->read()['metrics'] ?? []);
+        $reason = (string) ($metrics['last_upload_failure_reason'] ?? 'unknown');
+        $this->event('error', sprintf('Remote upload failed (attempt %d): %s', $attempt, $this->sanitize($reason)));
+
     }
 
     public function heartbeat(): void
@@ -233,11 +236,12 @@ final class AgentDebugDashboard
             self::RESET,
             $this->uploadFailures . ' session',
         ));
+        $screen .= $line('  ' . self::DIM . 'LAST FAILURE' . self::RESET . '  ' . $this->sanitize((string) ($metrics['last_upload_failure_reason'] ?? 'none')));
         $screen .= $mid;
         $screen .= $line('  ' . self::CYAN . 'LIVE EVENTS' . self::RESET . '  ' . self::DIM . '(most recent; payloads hidden)' . self::RESET);
 
         // Keep the screen within the terminal height; the ring buffer is bounded.
-        $slots = max(1, $height - 17);
+        $slots = max(1, $height - 18);
         $recent = array_slice($this->events, -$slots);
 
         foreach ($recent as $event) {
