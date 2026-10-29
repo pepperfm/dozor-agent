@@ -31,6 +31,7 @@ final class AgentCommand extends Command
         {--ship-max-batches-per-flush= : Maximum queued batches to ship per flush iteration}
         {--ship-flush-interval-seconds= : Background flush interval in seconds}
         {--ship-max-attempts-per-batch= : Maximum attempts before dropping a batch}
+        {--ship-max-spool-batches= : Maximum on-disk queued and failed batches combined}
         {--ship-queue-backoff-base-ms= : Queue retry base backoff in milliseconds}
         {--ship-queue-backoff-cap-ms= : Queue retry cap backoff in milliseconds}
         {--ship-retry-attempts= : HTTP retry attempts per upload}
@@ -76,6 +77,7 @@ final class AgentCommand extends Command
         $shipMaxBatchesPerFlush = $this->intOption('ship-max-batches-per-flush', (int) Arr::get($this->config, 'agent.shipper.max_batches_per_flush', 10));
         $shipFlushIntervalSeconds = $this->floatOption('ship-flush-interval-seconds', (float) Arr::get($this->config, 'agent.shipper.flush_interval_seconds', 2.0));
         $shipMaxAttempts = $this->intOption('ship-max-attempts-per-batch', (int) Arr::get($this->config, 'agent.shipper.max_attempts_per_batch', 8));
+        $shipMaxSpoolBatches = $this->intOption('ship-max-spool-batches', (int) Arr::get($this->config, 'agent.shipper.max_spool_batches', 500));
         $queueBackoffBaseMs = $this->intOption('ship-queue-backoff-base-ms', (int) Arr::get($this->config, 'agent.shipper.queue_backoff_base_ms', 500));
         $queueBackoffCapMs = $this->intOption('ship-queue-backoff-cap-ms', (int) Arr::get($this->config, 'agent.shipper.queue_backoff_cap_ms', 30000));
         $shipRetryAttempts = $this->intOption('ship-retry-attempts', (int) Arr::get($this->config, 'agent.shipper.retry_attempts', 3));
@@ -106,6 +108,7 @@ final class AgentCommand extends Command
                 queueBackoffBaseMs: $queueBackoffBaseMs,
                 queueBackoffCapMs: $queueBackoffCapMs,
                 runtimeState: $runtimeState,
+                maxSpoolBatches: max(1, $shipMaxSpoolBatches),
             );
 
             $shipper = new HostedIngestTransport(

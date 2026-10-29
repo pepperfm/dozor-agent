@@ -96,6 +96,7 @@ return [
             'max_batches_per_flush' => (int) env('DOZOR_AGENT_SHIP_MAX_BATCHES_PER_FLUSH', 10),
             'flush_interval_seconds' => (float) env('DOZOR_AGENT_SHIP_FLUSH_INTERVAL_SECONDS', 2.0),
             'max_attempts_per_batch' => (int) env('DOZOR_AGENT_SHIP_MAX_ATTEMPTS_PER_BATCH', 8),
+            'max_spool_batches' => (int) env('DOZOR_AGENT_SHIP_MAX_SPOOL_BATCHES', 500),
             'queue_backoff_base_ms' => (int) env('DOZOR_AGENT_SHIP_QUEUE_BACKOFF_BASE_MS', 500),
             'queue_backoff_cap_ms' => (int) env('DOZOR_AGENT_SHIP_QUEUE_BACKOFF_CAP_MS', 30000),
         ],

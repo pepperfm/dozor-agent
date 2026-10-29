@@ -30,6 +30,7 @@ final class SpoolQueue
         private readonly int $queueBackoffBaseMs = 500,
         private readonly int $queueBackoffCapMs = 30_000,
         private readonly ?AgentRuntimeState $runtimeState = null,
+        private readonly int $maxSpoolBatches = 500,
     ) {
     }
 
@@ -55,6 +56,15 @@ final class SpoolQueue
     public function enqueue(array $payload): string
     {
         $this->ensureDirectories();
+
+        // Include dead-letter files: an extended outage must not consume an
+        // unbounded amount of the host application's disk space.
+        if ($this->maxSpoolBatches > 0
+            && ($this->queuedBatchesCount() + $this->failedBatchesCount()) >= $this->maxSpoolBatches
+        ) {
+            $this->runtimeState?->incrementDroppedBatches('rejected', 'spool-capacity');
+            throw new RuntimeException('Dozor spool capacity reached; refusing new telemetry batch');
+        }
 
         $batchId = $this->makeBatchId();
         $path = $this->queueDirectory() . DIRECTORY_SEPARATOR . sprintf('%d-%s.json', time(), $batchId);

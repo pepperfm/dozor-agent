@@ -11,6 +11,26 @@ use function usleep;
 
 final class SpoolQueueRetryTest extends TestCase
 {
+    public function test_it_bounds_total_spool_storage_across_queued_and_failed_batches(): void
+    {
+        $queue = new SpoolQueue(
+            spoolPath: $this->makeTemporaryDirectory('dozor-spool-capacity'),
+            maxAttemptsPerBatch: 1,
+            maxSpoolBatches: 2,
+        );
+
+        $queue->enqueue(['traces' => [['id' => 'batch-1']]]);
+        $queue->enqueue(['traces' => [['id' => 'batch-2']]]);
+        $queue->drain(static fn(): bool => false, 10);
+
+        self::assertSame(0, $queue->queuedBatchesCount());
+        self::assertSame(2, $queue->failedBatchesCount());
+
+        $this->expectException(\\RuntimeException::class);
+        $this->expectExceptionMessage('spool capacity reached');
+        $queue->enqueue(['traces' => [['id' => 'batch-3']]]);
+    }
+
     public function test_it_retries_then_uploads_batch_successfully(): void
     {
         $queue = new SpoolQueue(
