@@ -548,6 +548,21 @@ final class TraceBatchTransformerTest extends TestCase
         self::assertNull($fragment['spans'][0]['parent_span_id']);
     }
 
+    public function test_standalone_unmeasured_event_has_no_fabricated_root_duration(): void
+    {
+        $transformer = new TraceBatchTransformer('App', 'token', 'production', 'host');
+        $trace = $transformer->transform([[
+            'type' => 'event',
+            'trace_id' => str()->ulid()->toString(),
+            'happened_at' => now()->toIso8601String(),
+            'payload' => ['name' => 'mail.sent'],
+        ]])['traces'][0];
+
+        self::assertSame(0, $trace['duration_ms']);
+        self::assertCount(1, $trace['spans']);
+        self::assertSame(0, $trace['spans'][0]['duration_ms']);
+    }
+
     public function test_unmeasured_application_events_have_zero_duration(): void
     {
         $transformer = new TraceBatchTransformer('App', 'token', 'production', 'host');

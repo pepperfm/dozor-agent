@@ -410,7 +410,8 @@ final class TraceBatchTransformer
             },
             'name' => $this->resolveRootSpanName($rootType, $payload),
             'start_offset_ms' => 0,
-            'duration_ms' => max(1, (int) round($this->resolveNumeric($payload, ['duration_ms', 'time_ms'], 1))),
+            // Framework events and logs are instants unless a producer measured them.
+            'duration_ms' => max(0, (int) round($this->resolveNumeric($payload, ['duration_ms', 'time_ms'], 0))),
             'connection' => null,
             'normalized_signature' => null,
             'sql_text' => null,
@@ -1012,10 +1013,10 @@ final class TraceBatchTransformer
         }
 
         if ($firstAt !== null && $lastAt !== null) {
-            return max(1, (int) round($lastAt - $firstAt));
+            return max(0, (int) round($lastAt - $firstAt));
         }
 
-        return max(1, $dbTimeMs + $externalTimeMs + $jobTimeMs);
+        return max(0, $dbTimeMs + $externalTimeMs + $jobTimeMs);
     }
 
     private function resolveMethod(array $rootRecord): string
