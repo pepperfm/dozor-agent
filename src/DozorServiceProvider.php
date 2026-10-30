@@ -8,13 +8,15 @@ use Illuminate\Support\ServiceProvider;
 use Dozor\Console\AgentCommand;
 use Dozor\Console\StatusCommand;
 use Dozor\Contracts\DozorContract as CoreContract;
-use Dozor\Contracts\IngestContract as IngestContract;
+use Dozor\Contracts\IngestContract;
+use Dozor\Hooks\OctaneLifecycle;
 use Dozor\Hooks\PreparingResponseListener;
 use Dozor\Hooks\RequestBootedHandler;
 use Dozor\Hooks\RequestHandledListener;
 use Dozor\Hooks\RequestTerminationFallback;
 use Dozor\Hooks\ResponsePreparedListener;
 use Dozor\Hooks\TerminatingListener;
+use Dozor\Http\Middleware\ExcludeRequest;
 use Dozor\Http\Middleware\TraceRequest;
 use Dozor\Http\Middleware\TraceRequestBootstrap;
 use Dozor\Watchers\CacheWatcher;
@@ -29,25 +31,37 @@ use Illuminate\View\Engines\EngineResolver;
 use Illuminate\Cache\Events\CacheHit;
 use Illuminate\Cache\Events\CacheMissed;
 use Illuminate\Cache\Events\KeyWritten;
+use Illuminate\Console\Events\CommandFinished;
+use Illuminate\Console\Events\CommandStarting;
+use Illuminate\Console\Events\ScheduledTaskFailed;
+use Illuminate\Console\Events\ScheduledTaskFinished;
+use Illuminate\Console\Events\ScheduledTaskSkipped;
 use Illuminate\Contracts\Config\Repository;
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Events\Terminating;
 use Illuminate\Foundation\Http\Events\RequestHandled;
+use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Http\Client\Events\ConnectionFailed;
 use Illuminate\Http\Client\Events\RequestSending;
 use Illuminate\Http\Client\Events\ResponseReceived;
+use Illuminate\Http\Request;
 use Illuminate\Log\Events\MessageLogged;
+use Illuminate\Mail\Events\MessageSent;
+use Illuminate\Notifications\Events\NotificationSent;
+use Illuminate\Queue\Events\JobAttempted;
 use Illuminate\Queue\Events\JobFailed;
 use Illuminate\Queue\Events\JobProcessed;
 use Illuminate\Queue\Events\JobProcessing;
+use Illuminate\Queue\Events\JobReleasedAfterException;
 use Illuminate\Queue\Events\Looping;
+use Illuminate\Queue\Events\WorkerStarting;
+use Illuminate\Queue\Events\WorkerStopping;
 use Illuminate\Routing\Events\PreparingResponse;
 use Illuminate\Routing\Events\ResponsePrepared;
 use Illuminate\Routing\Router;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Event;
-use Throwable;
 
 class DozorServiceProvider extends ServiceProvider
 {
@@ -79,7 +93,7 @@ class DozorServiceProvider extends ServiceProvider
                     ingest: $app->make(IngestContract::class),
                     config: $config,
                 );
-            } catch (Throwable $e) {
+            } catch (\Throwable $e) {
                 logger()->error('dozor.package.core_boot_failed', [
                     'class' => $e::class,
                     'message' => $e->getMessage(),
@@ -134,8 +148,12 @@ class DozorServiceProvider extends ServiceProvider
         $this->app->singleton(ApplicationEventWatcher::class, static function (Application $app): ApplicationEventWatcher {
             /** @var array<string, mixed> $config */
             $config = $app->make(Repository::class)->get('dozor', []);
-            $prefixes = array_values(array_filter(array_map('trim', (array) Arr::get($config, 'instrumentation.event_prefixes', []))));
-            $ignoredEvents = array_values(array_filter(array_map('trim', (array) Arr::get($config, 'instrumentation.event_ignore', []))));
+            $prefixes = array_map('trim', (array) Arr::get($config, 'instrumentation.event_prefixes', []))
+                |> array_filter(...)
+                |> array_values(...);
+            $ignoredEvents = array_map('trim', (array) Arr::get($config, 'instrumentation.event_ignore', []))
+                |> array_filter(...)
+                |> array_values(...);
 
             return new ApplicationEventWatcher(
                 $app->make(CoreContract::class),
@@ -175,6 +193,9 @@ class DozorServiceProvider extends ServiceProvider
         });
     }
 
+    /**
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
     public function boot(): void
     {
         $sourceConfigPath = __DIR__ . '/../config/dozor.php';
@@ -194,7 +215,7 @@ class DozorServiceProvider extends ServiceProvider
         try {
             /** @var CoreContract $core */
             $core = $this->app->make(CoreContract::class);
-        } catch (Throwable $e) {
+        } catch (\Throwable $e) {
             logger()->error('dozor.package.discovery_failed', [
                 'class' => $e::class,
                 'message' => $e->getMessage(),
@@ -207,11 +228,21 @@ class DozorServiceProvider extends ServiceProvider
             return;
         }
 
+        try {
+            new OctaneLifecycle()->register($core);
+        } catch (\Throwable $e) {
+            logger()->warning('dozor.octane.hooks_unavailable', [
+                'class' => $e::class,
+            ]);
+        }
+
+        $this->rememberReportedExceptions();
+
         $outgoingHttpEnabled = (bool) config('dozor.instrumentation.outgoing_http', true);
         $captureLogsEnabled = (bool) config('dozor.instrumentation.capture_logs', true);
         $captureEventsEnabled = (bool) config('dozor.instrumentation.capture_events', true);
 
-        if ((bool) config('dozor.instrumentation.capture_views', false)) {
+        if (config('dozor.instrumentation.capture_views', false)) {
             $this->callAfterResolving('view.engine.resolver', static function (EngineResolver $resolver) use ($core): void {
                 // Bind after the original view engines are registered, and preserve
                 // the original engine behavior, including exceptions and caching.
@@ -228,20 +259,24 @@ class DozorServiceProvider extends ServiceProvider
 
         Event::listen(QueryExecuted::class, $this->app->make(QueryWatcher::class));
 
-        if ((bool) config('dozor.instrumentation.capture_framework_events', true)) {
+        if (config('dozor.instrumentation.capture_framework_events', true)) {
             $framework = new FrameworkWatcher($core);
-            Event::listen(\Illuminate\Console\Events\CommandStarting::class, [$framework, 'commandStarting']);
-            Event::listen(\Illuminate\Console\Events\CommandFinished::class, [$framework, 'commandFinished']);
-            Event::listen(\Illuminate\Console\Events\ScheduledTaskFinished::class, [$framework, 'scheduledFinished']);
-            Event::listen(\Illuminate\Console\Events\ScheduledTaskFailed::class, [$framework, 'scheduledFailed']);
-            Event::listen(\Illuminate\Console\Events\ScheduledTaskSkipped::class, [$framework, 'scheduledSkipped']);
-            Event::listen(\Illuminate\Mail\Events\MessageSent::class, [$framework, 'messageSent']);
-            Event::listen(\Illuminate\Notifications\Events\NotificationSent::class, [$framework, 'notificationSent']);
+            Event::listen(CommandStarting::class, [$framework, 'commandStarting']);
+            Event::listen(CommandFinished::class, [$framework, 'commandFinished']);
+            Event::listen(ScheduledTaskFinished::class, [$framework, 'scheduledFinished']);
+            Event::listen(ScheduledTaskFailed::class, [$framework, 'scheduledFailed']);
+            Event::listen(ScheduledTaskSkipped::class, [$framework, 'scheduledSkipped']);
+            Event::listen(MessageSent::class, [$framework, 'messageSent']);
+            Event::listen(NotificationSent::class, [$framework, 'notificationSent']);
         }
         Event::listen(Looping::class, [$this->app->make(QueueWatcher::class), 'looping']);
         Event::listen(JobProcessing::class, [$this->app->make(QueueWatcher::class), 'started']);
         Event::listen(JobProcessed::class, [$this->app->make(QueueWatcher::class), 'finished']);
         Event::listen(JobFailed::class, [$this->app->make(QueueWatcher::class), 'finished']);
+        Event::listen(JobReleasedAfterException::class, [$this->app->make(QueueWatcher::class), 'released']);
+        Event::listen(JobAttempted::class, [$this->app->make(QueueWatcher::class), 'attempted']);
+        Event::listen(WorkerStarting::class, [$this->app->make(QueueWatcher::class), 'workerBoundary']);
+        Event::listen(WorkerStopping::class, [$this->app->make(QueueWatcher::class), 'workerBoundary']);
         // Cache events are too noisy for a small personal installation.
         if ((bool) config('dozor.instrumentation.capture_cache', false)) {
             Event::listen(CacheHit::class, [$this->app->make(CacheWatcher::class), 'hit']);
@@ -254,11 +289,9 @@ class DozorServiceProvider extends ServiceProvider
             Event::listen(ResponseReceived::class, [$this->app->make(HttpWatcher::class), 'responseReceived']);
             Event::listen(ConnectionFailed::class, [$this->app->make(HttpWatcher::class), 'connectionFailed']);
         }
-
         if ($captureLogsEnabled) {
             Event::listen(MessageLogged::class, $this->app->make(LogWatcher::class));
         }
-
         if ($captureEventsEnabled) {
             Event::listen('*', [$this->app->make(ApplicationEventWatcher::class), 'handle']);
         }
@@ -267,7 +300,7 @@ class DozorServiceProvider extends ServiceProvider
         Event::listen(ResponsePrepared::class, $this->app->make(ResponsePreparedListener::class));
         Event::listen(RequestHandled::class, $this->app->make(RequestHandledListener::class));
         Event::listen(Terminating::class, $this->app->make(TerminatingListener::class));
-        if ((bool) config('dozor.http.attach_middleware', true)) {
+        if (config('dozor.http.attach_middleware', true)) {
             // Unlike route middleware, this path covers unmatched 404s too.
             // It runs after terminable middleware and checks if the trace is
             // still active, preventing duplicate request roots.
@@ -281,12 +314,13 @@ class DozorServiceProvider extends ServiceProvider
         $this->callAfterResolving(Router::class, function (Router $router): void {
             $router->aliasMiddleware('dozor.trace', TraceRequest::class);
             $router->aliasMiddleware('dozor.trace.bootstrap', TraceRequestBootstrap::class);
+            $router->aliasMiddleware('dozor.exclude', ExcludeRequest::class);
 
             if (!config('dozor.http.attach_middleware', true)) {
                 return;
             }
 
-            $attachMiddleware = function () use ($router): void {
+            $attachMiddleware = static function () use ($router): void {
                 foreach ((array) config('dozor.http.groups', ['web', 'api']) as $group) {
                     if (!is_string($group) || $group === '') {
                         continue;
@@ -312,5 +346,38 @@ class DozorServiceProvider extends ServiceProvider
 
             $this->app->booted($attachMiddleware);
         });
+    }
+
+    private function rememberReportedExceptions(): void
+    {
+        try {
+            $handler = $this->app->bound(ExceptionHandler::class)
+                ? $this->app->make(ExceptionHandler::class)
+                : null;
+            if (!is_object($handler) || !method_exists($handler, 'reportable')) {
+                logger()->warning('dozor.exception.hook_unavailable', [
+                    'reason' => 'reportable_missing',
+                ]);
+
+                return;
+            }
+
+            $handler->reportable(static function (\Throwable $e): void {
+                $request = request();
+                if (!$request instanceof Request) {
+                    return;
+                }
+
+                if ($request->attributes->get('dozor.exception_recorded') === true) {
+                    return;
+                }
+
+                $request->attributes->set('dozor.pending_exception', $e);
+            });
+        } catch (\Throwable $e) {
+            logger()->warning('dozor.exception.hook_unavailable', [
+                'class' => $e::class,
+            ]);
+        }
     }
 }

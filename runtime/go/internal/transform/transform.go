@@ -237,6 +237,13 @@ func (t *Transformer) transformTrace(source string, records []obj) obj {
 		"request_payload_preview": prev, "request_payload_preview_truncated": prevTruncated,
 		"lifecycle_ready": len(phaseIDs) > 0, "lifecycle_stages": ensureArray(get(p, "lifecycle_stages")),
 	}
+	if _, ok := p["dropped_batches"]; ok {
+		meta["dropped_batches"] = integer(p, "dropped_batches")
+	}
+	if _, ok := p["inertia"]; ok {
+		meta["inertia"] = boolValue(get(p, "inertia"))
+		meta["ssr_duration_measured"] = false
+	}
 	return obj{
 		"id": traceID, "type": kind, "started_at": start,
 		"method": method, "route": route, "uri": uri, "controller": controllerValue,

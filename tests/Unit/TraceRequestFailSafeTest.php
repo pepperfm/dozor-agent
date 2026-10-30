@@ -11,7 +11,6 @@ use Dozor\Http\Middleware\TraceRequestBootstrap;
 use Dozor\Tests\TestCase;
 use Dozor\Tracing\RequestLifecycleStage;
 use Illuminate\Http\Request;
-use RuntimeException;
 use Symfony\Component\HttpFoundation\Response;
 
 final class TraceRequestFailSafeTest extends TestCase
@@ -85,10 +84,10 @@ final class TraceRequestFailSafeTest extends TestCase
 
         try {
             $middleware->handle($request, static function (): Response {
-                throw new RuntimeException('business exception');
+                throw new \RuntimeException('business exception');
             });
             self::fail('Expected RuntimeException was not thrown.');
-        } catch (RuntimeException $e) {
+        } catch (\RuntimeException $e) {
             self::assertSame('business exception', $e->getMessage());
             self::assertSame(
                 [RequestLifecycleStage::Action->value, RequestLifecycleStage::AfterMiddleware->value],
@@ -115,11 +114,11 @@ final class TraceRequestFailSafeTest extends TestCase
             $bootstrap->handle($request, static fn() => $action->handle(
                 $request,
                 static function (): Response {
-                    throw new RuntimeException('business exception');
+                    throw new \RuntimeException('business exception');
                 },
             ));
             self::fail('Expected RuntimeException was not thrown.');
-        } catch (RuntimeException $e) {
+        } catch (\RuntimeException $e) {
             self::assertSame('business exception', $e->getMessage());
         }
     }
@@ -129,11 +128,11 @@ final class TraceRequestFailSafeTest extends TestCase
         $core = $this->createStub(DozorContract::class);
         $core->method('enabled')->willReturn(true);
         $core->method('hasActiveRequestTrace')->willReturn(false);
-        $core->method('beginRequest')->willThrowException(new RuntimeException('beginRequest failed'));
-        $core->method('transitionLifecycleStage')->willThrowException(new RuntimeException('transition failed'));
-        $core->method('finishRequest')->willThrowException(new RuntimeException('finishRequest failed'));
-        $core->method('digest')->willThrowException(new RuntimeException('digest failed'));
-        $core->method('recordException')->willThrowException(new RuntimeException('recordException failed'));
+        $core->method('beginRequest')->willThrowException(new \RuntimeException('beginRequest failed'));
+        $core->method('transitionLifecycleStage')->willThrowException(new \RuntimeException('transition failed'));
+        $core->method('finishRequest')->willThrowException(new \RuntimeException('finishRequest failed'));
+        $core->method('digest')->willThrowException(new \RuntimeException('digest failed'));
+        $core->method('recordException')->willThrowException(new \RuntimeException('recordException failed'));
         $core->method('lifecycleStageIs')->willReturn(false);
 
         $bootstrap = new TraceRequestBootstrap($core);

@@ -4,15 +4,10 @@ declare(strict_types=1);
 
 namespace Dozor\Watchers;
 
-use Dozor\Contracts\DozorContract;
 use Illuminate\Http\Client\Events\ConnectionFailed;
 use Illuminate\Http\Client\Events\RequestSending;
 use Illuminate\Http\Client\Events\ResponseReceived;
-use Throwable;
-
-use function is_numeric;
-use function parse_url;
-use function round;
+use Dozor\Contracts\DozorContract;
 
 final class HttpWatcher
 {
@@ -102,7 +97,7 @@ final class HttpWatcher
     {
         try {
             $this->core->recordOutgoingHttp($payload);
-        } catch (Throwable) {
+        } catch (\Throwable) {
         }
     }
 }

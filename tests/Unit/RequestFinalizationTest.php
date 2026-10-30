@@ -6,9 +6,13 @@ namespace Dozor\Tests\Unit;
 
 use Dozor\Contracts\IngestContract;
 use Dozor\Dozor;
+use Dozor\Http\Middleware\TraceRequestBootstrap;
 use Dozor\Tests\TestCase;
+use Dozor\Tracing\RequestLifecycleStage;
+use Illuminate\Container\Container;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Route;
+use Psr\Log\AbstractLogger;
 use Symfony\Component\HttpFoundation\Response;
 
 final class RequestFinalizationTest extends TestCase
@@ -136,10 +140,20 @@ final class RequestFinalizationTest extends TestCase
         $error = new \RuntimeException('Request failed https://api.example.test/token?password=secret-token');
         $core->finishRequest($request, new Response('error', 500), $startedAt, $error);
 
-        self::assertCount(1, $records);
-        self::assertSame(500, $records[0]['payload']['status']);
-        self::assertStringNotContainsString('secret-token', $records[0]['payload']['exception_message']);
-        self::assertStringContainsString('[URL REDACTED]', $records[0]['payload']['exception_message']);
+        $requestRecords = array_values(array_filter(
+            $records,
+            static fn(array $record): bool => ($record['type'] ?? null) === 'request',
+        ));
+        $exceptionRecords = array_values(array_filter(
+            $records,
+            static fn(array $record): bool => ($record['type'] ?? null) === 'exception',
+        ));
+        self::assertCount(1, $requestRecords);
+        self::assertCount(1, $exceptionRecords);
+        self::assertSame(500, $requestRecords[0]['payload']['status']);
+        self::assertStringNotContainsString('secret-token', $requestRecords[0]['payload']['exception_message']);
+        self::assertStringContainsString('[URL REDACTED]', $requestRecords[0]['payload']['exception_message']);
+        self::assertStringNotContainsString('secret-token', $exceptionRecords[0]['payload']['message']);
     }
 
     public function test_route_and_authenticated_user_are_resolved_after_request_middleware(): void
@@ -180,5 +194,102 @@ final class RequestFinalizationTest extends TestCase
         self::assertSame('https://example.test/orders/123', $payload['url']);
         self::assertArrayHasKey('request_started_at', $payload);
         self::assertSame(200, $payload['status']);
+    }
+
+    public function test_second_request_does_not_inherit_an_unfinished_request_trace(): void
+    {
+        $records = [];
+        $ingest = $this->createStub(IngestContract::class);
+        $ingest->method('write')->willReturnCallback(static function (array $record) use (&$records): void {
+            $records[] = $record;
+        });
+
+        $logger = new class extends AbstractLogger
+        {
+            /** @var list<array{level: string, message: string, context: array<string, mixed>}> */
+            public array $records = [];
+
+            public function log($level, \Stringable|string $message, array $context = []): void
+            {
+                $this->records[] = [
+                    'level' => (string) $level,
+                    'message' => (string) $message,
+                    'context' => $context,
+                ];
+            }
+        };
+        Container::getInstance()->instance('log', $logger);
+
+        $dozor = new Dozor($ingest, [
+            'enabled' => true,
+            'app_name' => 'test',
+        ]);
+
+        $first = Request::create('https://example.test/first', 'GET');
+        $firstStartedAt = microtime(true) - 0.05;
+        $firstTrace = $dozor->beginRequest($first, $firstStartedAt);
+        $dozor->transitionLifecycleStage(RequestLifecycleStage::Controller->value);
+
+        self::assertSame([], $logger->records);
+        self::assertContains(
+            RequestLifecycleStage::Controller->value,
+            array_column($firstTrace->lifecycleStages(), 'name'),
+        );
+
+        $second = Request::create('https://example.test/second', 'GET');
+        $secondStartedAt = microtime(true);
+        $secondTrace = $dozor->beginRequest($second, $secondStartedAt);
+
+        self::assertNotSame($firstTrace->traceId, $secondTrace->traceId);
+        self::assertSame($secondTrace->traceId, $dozor->currentTrace?->traceId);
+        self::assertSame(
+            [RequestLifecycleStage::Bootstrap->value],
+            array_column($secondTrace->lifecycleStages(), 'name'),
+        );
+
+        $requestRecords = array_values(array_filter(
+            $records,
+            static fn(array $record): bool => ($record['type'] ?? null) === 'request',
+        ));
+        self::assertSame([], $requestRecords);
+
+        $dozor->finishRequest($second, new Response('ok', 200), $secondStartedAt);
+
+        $requestRecords = array_values(array_filter(
+            $records,
+            static fn(array $record): bool => ($record['type'] ?? null) === 'request',
+        ));
+        self::assertCount(1, $requestRecords);
+        self::assertSame($secondTrace->traceId, $requestRecords[0]['trace_id']);
+        self::assertCount(1, $logger->records);
+        self::assertSame('warning', $logger->records[0]['level']);
+        self::assertSame('dozor.trace.stale_request_reset', $logger->records[0]['message']);
+        self::assertSame(['reason' => 'stale_request'], $logger->records[0]['context']);
+    }
+
+    public function test_bootstrap_replaces_an_unfinished_trace_for_the_next_request(): void
+    {
+        $ingest = $this->createStub(IngestContract::class);
+        $dozor = new Dozor($ingest, [
+            'enabled' => true,
+            'app_name' => 'test',
+        ]);
+        $middleware = new TraceRequestBootstrap($dozor);
+
+        $first = Request::create('https://example.test/first', 'GET');
+        $first->server->set('REQUEST_TIME_FLOAT', (string) (microtime(true) - 0.05));
+        $middleware->handle($first, static fn(): Response => new Response('ok', 200));
+        $firstTraceId = $dozor->currentTrace?->traceId;
+
+        $second = Request::create('https://example.test/second', 'GET');
+        $second->server->set('REQUEST_TIME_FLOAT', (string) microtime(true));
+        $middleware->handle($second, static fn(): Response => new Response('ok', 200));
+
+        self::assertNotNull($firstTraceId);
+        self::assertNotSame($firstTraceId, $dozor->currentTrace?->traceId);
+        self::assertSame(
+            [RequestLifecycleStage::Bootstrap->value, RequestLifecycleStage::BeforeMiddleware->value],
+            array_column($dozor->currentTrace?->lifecycleStages() ?? [], 'name'),
+        );
     }
 }

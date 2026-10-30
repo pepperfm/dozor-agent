@@ -6,21 +6,6 @@ namespace Dozor\Agent;
 
 use Dozor\Telemetry\AgentRuntimeState;
 use Illuminate\Support\Arr;
-use RuntimeException;
-use Throwable;
-
-use function count;
-use function glob;
-use function is_array;
-use function is_string;
-use function microtime;
-use function mkdir;
-use function rtrim;
-use function sort;
-use function sprintf;
-use function str_contains;
-use function time;
-use function unlink;
 
 final class SpoolQueue
 {
@@ -64,7 +49,7 @@ final class SpoolQueue
             && ($this->queuedBatchesCount() + $this->failedBatchesCount()) >= $this->maxSpoolBatches
         ) {
             $this->runtimeState?->incrementDroppedBatches('rejected', 'spool-capacity');
-            throw new RuntimeException('Dozor spool capacity reached; refusing new telemetry batch');
+            throw new \RuntimeException('Dozor spool capacity reached; refusing new telemetry batch');
         }
 
         $batchId = $this->makeBatchId();
@@ -134,7 +119,7 @@ final class SpoolQueue
 
             try {
                 $uploaded = $uploader($payload, $batchId, $attempt);
-            } catch (Throwable) {
+            } catch (\Throwable) {
             }
 
             if ($uploaded) {
@@ -177,7 +162,7 @@ final class SpoolQueue
         }
 
         if (!mkdir($path, 0775, true) && !is_dir($path)) {
-            throw new RuntimeException("Unable to create spool directory [$path]");
+            throw new \RuntimeException("Unable to create spool directory [$path]");
         }
     }
 
@@ -189,16 +174,16 @@ final class SpoolQueue
         try {
             $raw = file_get_contents($file);
             if ($raw === false || $raw === '') {
-                throw new RuntimeException('empty_spool_file');
+                throw new \RuntimeException('empty_spool_file');
             }
 
             $decoded = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
             if (!is_array($decoded)) {
-                throw new RuntimeException('spool_json_is_not_array');
+                throw new \RuntimeException('spool_json_is_not_array');
             }
 
             return $decoded;
-        } catch (Throwable) {
+        } catch (\Throwable) {
             return null;
         }
     }
@@ -222,13 +207,13 @@ final class SpoolQueue
         if ($written !== strlen($contents)) {
             @unlink($tempFile);
 
-            throw new RuntimeException("Unable to write complete spool temp file [$tempFile]");
+            throw new \RuntimeException("Unable to write complete spool temp file [$tempFile]");
         }
 
         if (!@rename($tempFile, $file)) {
             @unlink($tempFile);
 
-            throw new RuntimeException("Unable to move spool temp file [$tempFile] to [$file]");
+            throw new \RuntimeException("Unable to move spool temp file [$tempFile] to [$file]");
         }
     }
 

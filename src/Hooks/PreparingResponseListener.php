@@ -7,7 +7,6 @@ namespace Dozor\Hooks;
 use Dozor\Contracts\DozorContract;
 use Dozor\Tracing\RequestLifecycleStage;
 use Illuminate\Routing\Events\PreparingResponse;
-use Throwable;
 
 final readonly class PreparingResponseListener
 {
@@ -21,7 +20,7 @@ final readonly class PreparingResponseListener
             if ($this->core->lifecycleStageIs(RequestLifecycleStage::Action->value)) {
                 $this->core->transitionLifecycleStage(RequestLifecycleStage::Render->value);
             }
-        } catch (Throwable) {
+        } catch (\Throwable) {
         }
     }
 }

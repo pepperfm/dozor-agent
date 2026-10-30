@@ -11,11 +11,6 @@ use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Http;
 
-use function count;
-use function is_array;
-use function is_string;
-use function trim;
-
 final readonly class HostedIngestTransport
 {
     public function __construct(
@@ -93,11 +88,11 @@ final readonly class HostedIngestTransport
             );
 
             return false;
-        } catch (ConnectionException $e) {
+        } catch (ConnectionException) {
             $this->runtimeState?->incrementFailedUploads($batchId, $attempt, 'connection_exception');
 
             return false;
-        } catch (\Throwable $e) {
+        } catch (\Throwable) {
             $this->runtimeState?->incrementFailedUploads($batchId, $attempt, 'unexpected_exception');
 
             return false;

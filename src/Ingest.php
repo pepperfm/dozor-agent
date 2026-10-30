@@ -4,22 +4,14 @@ declare(strict_types=1);
 
 namespace Dozor;
 
-use Deprecated;
-use Dozor\Contracts\IngestContract as IngestContract;
-use RuntimeException;
-use Throwable;
-
-use function Dozor\fclose_safely;
-use function Dozor\fread_all;
-use function Dozor\fwrite_all;
-use function Dozor\stream_configure_read_timeout;
+use Dozor\Contracts\IngestContract;
 
 /**
  * @internal
  */
 final class Ingest implements IngestContract
 {
-    private const DEFAULT_RETRY_COOLDOWN_SECONDS = 2.0;
+    private const float DEFAULT_RETRY_COOLDOWN_SECONDS = 2.0;
 
     private string $transmitTo;
 
@@ -42,6 +34,9 @@ final class Ingest implements IngestContract
         $this->transmitTo = "tcp://$transmitTo";
     }
 
+    /**
+     * @throws \JsonException|\Throwable
+     */
     public function write(array $record): void
     {
         $record = $this->withTransportDropCount($record);
@@ -52,6 +47,9 @@ final class Ingest implements IngestContract
         }
     }
 
+    /**
+     * @throws \JsonException|\Throwable
+     */
     public function writeNow(array $record): void
     {
         $record = $this->withTransportDropCount($record);
@@ -71,12 +69,15 @@ final class Ingest implements IngestContract
         $this->buffer->flush();
     }
 
+    /**
+     * @throws \Throwable
+     */
     public function ping(): void
     {
         $this->transmit(Payload::text('PING', $this->tokenHash), strict: true);
     }
 
-    #[Deprecated('Use shouldDigestWhenBufferIsFull instead')]
+    #[\Deprecated('Use shouldDigestWhenBufferIsFull instead')]
     public function shouldDigest(bool $bool = true): void
     {
         $this->shouldDigestWhenBufferIsFull($bool);
@@ -87,6 +88,9 @@ final class Ingest implements IngestContract
         $this->shouldDigestWhenBufferIsFull = $bool;
     }
 
+    /**
+     * @throws \JsonException|\Throwable
+     */
     public function digest(): void
     {
         $records = $this->buffer->all();
@@ -116,7 +120,6 @@ final class Ingest implements IngestContract
         if ($payload->isEmpty()) {
             return true;
         }
-
         if (!$strict && !$this->shouldAttemptNonStrictTransmit()) {
             return false;
         }
@@ -131,9 +134,9 @@ final class Ingest implements IngestContract
             $this->nextRetryAt = null;
 
             return true;
-        } catch (Throwable $exception) {
+        } catch (\Throwable $e) {
             if ($strict) {
-                throw $exception;
+                throw $e;
             }
 
             $this->nextRetryAt = microtime(true) + max(0.0, $this->retryCooldownSeconds);
@@ -182,7 +185,7 @@ final class Ingest implements IngestContract
     {
         $response = fread_all($stream, 4);
         if ($response !== '2:OK') {
-            throw new RuntimeException("Unexpected response from agent [$response]");
+            throw new \RuntimeException("Unexpected response from agent [$response]");
         }
     }
 }

@@ -11,9 +11,7 @@ use Dozor\Agent\Transport\HostedIngestTransport;
 use Dozor\Telemetry\AgentRuntimeState;
 use Dozor\Tracing\TraceBatchTransformer;
 use Illuminate\Support\Arr;
-use SensitiveParameter;
 use Symfony\Component\Console\Attribute\AsCommand;
-use Throwable;
 
 #[AsCommand(name: 'dozor:agent', description: 'Run the Dozor local ingest agent.')]
 final class AgentCommand extends Command
@@ -54,7 +52,7 @@ final class AgentCommand extends Command
      * @param array<string, mixed> $config
      */
     public function __construct(
-        #[SensitiveParameter]
+        #[\SensitiveParameter]
         private readonly ?string $token,
         private readonly array $config,
     ) {
@@ -166,7 +164,7 @@ final class AgentCommand extends Command
 
         try {
             $server->run();
-        } catch (Throwable $e) {
+        } catch (\Throwable $e) {
             $this->components->error($e->getMessage());
 
             return self::FAILURE;

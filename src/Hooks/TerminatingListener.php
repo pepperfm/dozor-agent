@@ -7,7 +7,6 @@ namespace Dozor\Hooks;
 use Dozor\Contracts\DozorContract;
 use Dozor\Tracing\RequestLifecycleStage;
 use Illuminate\Foundation\Events\Terminating;
-use Throwable;
 
 final readonly class TerminatingListener
 {
@@ -19,7 +18,7 @@ final readonly class TerminatingListener
     {
         try {
             $this->core->transitionLifecycleStage(RequestLifecycleStage::Terminating->value);
-        } catch (Throwable) {
+        } catch (\Throwable) {
         }
     }
 }

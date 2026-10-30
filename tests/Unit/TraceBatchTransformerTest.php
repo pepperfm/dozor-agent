@@ -7,10 +7,6 @@ namespace Dozor\Tests\Unit;
 use Dozor\Tests\TestCase;
 use Dozor\Tracing\TraceBatchTransformer;
 
-use function count;
-use function is_array;
-use function str_repeat;
-
 final class TraceBatchTransformerTest extends TestCase
 {
     public function test_job_root_preserves_failure_and_retry_attempts_for_jobs_dashboard(): void

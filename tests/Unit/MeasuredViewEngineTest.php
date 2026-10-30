@@ -8,7 +8,6 @@ use Dozor\Contracts\DozorContract;
 use Dozor\Tests\TestCase;
 use Dozor\Tracing\MeasuredViewEngine;
 use Illuminate\Contracts\View\Engine;
-use RuntimeException;
 
 final class MeasuredViewEngineTest extends TestCase
 {
@@ -43,11 +42,11 @@ final class MeasuredViewEngineTest extends TestCase
         $delegate = new class implements Engine {
             public function get($path, array $data = [])
             {
-                throw new RuntimeException('render failed');
+                throw new \RuntimeException('render failed');
             }
         };
         $core = $this->createStub(DozorContract::class);
-        $core->method('recordFrameworkEvent')->willThrowException(new RuntimeException('telemetry failed'));
+        $core->method('recordFrameworkEvent')->willThrowException(new \RuntimeException('telemetry failed'));
 
         $this->expectExceptionMessage('render failed');
         (new MeasuredViewEngine($delegate, $core))->get('/views/page.blade.php');

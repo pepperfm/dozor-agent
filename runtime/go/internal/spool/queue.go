@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"sync/atomic"
 	"time"
 )
 
@@ -27,10 +28,11 @@ type Envelope struct {
 	LastFailedAt  float64         `json:"last_failed_at,omitempty"`
 }
 type Queue struct {
-	root string
-	max  int
-	lock *os.File
-	mu   sync.Mutex
+	root     string
+	max      int
+	lock     *os.File
+	mu       sync.Mutex
+	rejected atomic.Uint64
 }
 
 func Open(root string, max int) (*Queue, error) {
@@ -134,6 +136,10 @@ func (q *Queue) Enqueue(payload json.RawMessage) (string, error) {
 	return ids[0], nil
 }
 
+func (q *Queue) Rejected() uint64 {
+	return q.rejected.Load()
+}
+
 // EnqueueMany reserves capacity for all chunks and ACK can only follow when all
 // payloads were persisted. Partial errors are rolled back where possible.
 func (q *Queue) EnqueueMany(payloads []json.RawMessage) ([]string, error) {
@@ -147,6 +153,7 @@ func (q *Queue) EnqueueMany(payloads []json.RawMessage) ([]string, error) {
 		return nil, err
 	}
 	if pending+failed+len(payloads) > q.max {
+		q.rejected.Add(1)
 		return nil, ErrCapacity
 	}
 	names := make([]string, 0, len(payloads))

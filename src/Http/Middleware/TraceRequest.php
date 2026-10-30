@@ -4,11 +4,9 @@ declare(strict_types=1);
 
 namespace Dozor\Http\Middleware;
 
-use Closure;
 use Dozor\Contracts\DozorContract;
 use Dozor\Tracing\RequestLifecycleStage;
 use Illuminate\Http\Request;
-use Throwable;
 
 final readonly class TraceRequest
 {
@@ -18,7 +16,7 @@ final readonly class TraceRequest
     {
     }
 
-    public function handle(Request $request, Closure $next): mixed
+    public function handle(Request $request, \Closure $next): mixed
     {
         if (! $this->core->enabled()) {
             return $next($request);
@@ -36,7 +34,7 @@ final readonly class TraceRequest
             }
 
             return $response;
-        } catch (Throwable $e) {
+        } catch (\Throwable $e) {
             if ($this->core->lifecycleStageIs(RequestLifecycleStage::Action->value)
                 || $this->core->lifecycleStageIs(RequestLifecycleStage::Render->value)
             ) {
@@ -49,7 +47,7 @@ final readonly class TraceRequest
         }
     }
 
-    private function recordExceptionOnce(Request $request, Throwable $e): void
+    private function recordExceptionOnce(Request $request, \Throwable $e): void
     {
         if ((bool) $request->attributes->get(self::EXCEPTION_RECORDED_ATTRIBUTE, false)) {
             return;
@@ -70,7 +68,7 @@ final readonly class TraceRequest
     {
         try {
             $callback();
-        } catch (Throwable) {
+        } catch (\Throwable) {
         }
     }
 }

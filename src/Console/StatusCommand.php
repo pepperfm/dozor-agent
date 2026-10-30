@@ -9,8 +9,6 @@ use Dozor\Agent\SpoolQueue;
 use Dozor\Contracts\DozorContract;
 use Dozor\Telemetry\AgentRuntimeState;
 use Illuminate\Support\Arr;
-use JsonException;
-use Throwable;
 
 final class StatusCommand extends Command
 {
@@ -72,7 +70,7 @@ final class StatusCommand extends Command
 
         try {
             $dozor->ping();
-        } catch (Throwable $e) {
+        } catch (\Throwable $e) {
             $reachable = false;
             $pingError = $e->getMessage();
         }
@@ -112,7 +110,7 @@ final class StatusCommand extends Command
         if ((bool) $this->option('json')) {
             try {
                 $this->line((string) json_encode($statusReport, JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-            } catch (JsonException $e) {
+            } catch (\JsonException $e) {
                 $this->components->error($e->getMessage());
 
                 return self::FAILURE;

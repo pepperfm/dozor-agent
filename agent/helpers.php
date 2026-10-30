@@ -2,26 +2,6 @@
 
 declare(strict_types=1);
 
-namespace Dozor;
-
-use RuntimeException;
-use Throwable;
-
-use function array_keys;
-use function array_reduce;
-use function fclose;
-use function feof;
-use function fread;
-use function fwrite;
-use function gettype;
-use function intval;
-use function is_callable;
-use function stream_get_meta_data;
-use function stream_set_timeout;
-use function sprintf;
-use function strlen;
-use function substr;
-
 /**
  * @param resource $stream
  * @param (callable(): string)|string $payload
@@ -34,13 +14,11 @@ function fwrite_all($stream, callable|string $payload): void
 
     while (true) {
         $thisWrite = fwrite($stream, $payload);
-
         if ($thisWrite === false) {
             throw runtime_exception_with_steam_meta('Unable to write to stream', $stream);
         }
 
         $written += $thisWrite;
-
         if ($written >= $originalPayloadLength) {
             return;
         }
@@ -63,7 +41,6 @@ function fread_all($stream, int $length): string
         if ($thisRead === false) {
             throw runtime_exception_with_steam_meta('Unable to read from stream', $stream);
         }
-
         if ($thisRead === '') {
             if (feof($stream)) {
                 break;
@@ -71,14 +48,10 @@ function fread_all($stream, int $length): string
 
             $meta = stream_get_meta_data($stream);
             if (($meta['timed_out'] ?? false) === true) {
-                throw runtime_exception_with_steam_meta(
-                    sprintf(
-                        'Read timed out before receiving full frame [expected: %d bytes, received: %d bytes]',
-                        $length,
-                        strlen($content),
-                    ),
-                    $stream,
-                );
+                throw $content
+                    |> strlen(...)
+                    |> (static fn($x) => sprintf('Read timed out before receiving full frame [expected: %d bytes, received: %d bytes]', $length, $x,))
+                    |> (static fn($x) => runtime_exception_with_steam_meta($x, $stream,));
             }
 
             continue;
@@ -88,14 +61,10 @@ function fread_all($stream, int $length): string
     }
 
     if (strlen($content) < $length) {
-        throw runtime_exception_with_steam_meta(
-            sprintf(
-                'Incomplete stream read [expected: %d bytes, received: %d bytes]',
-                $length,
-                strlen($content),
-            ),
-            $stream,
-        );
+        throw $content
+            |> strlen(...)
+            |> (static fn($x) => sprintf('Incomplete stream read [expected: %d bytes, received: %d bytes]', $length, $x,))
+            |> (static fn($x) => runtime_exception_with_steam_meta($x, $stream,));
     }
 
     return $content;
@@ -119,7 +88,7 @@ function stream_get_formatted_meta_data($stream): string
                 false => 'false',
                 default => $meta[$key],
             } . PHP_EOL;
-        } catch (Throwable) { // @phpstan-ignore catch.neverThrown
+        } catch (\Throwable) { // @phpstan-ignore catch.neverThrown
             return $carry;
         }
     }, '');
@@ -134,7 +103,7 @@ function fclose_safely($stream): void
         if (!stream_closed($stream)) {
             fclose($stream);
         }
-    } catch (Throwable) {
+    } catch (\Throwable) {
         //
     }
 }
@@ -150,9 +119,9 @@ function stream_closed($stream): bool
 /**
  * @param resource $stream
  */
-function runtime_exception_with_steam_meta(string $message, $stream): RuntimeException
+function runtime_exception_with_steam_meta(string $message, $stream): \RuntimeException
 {
-    return new RuntimeException($message . PHP_EOL . '---' . PHP_EOL . stream_get_formatted_meta_data($stream));
+    return new \RuntimeException($message . PHP_EOL . '---' . PHP_EOL . stream_get_formatted_meta_data($stream));
 }
 
 /**

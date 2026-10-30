@@ -15,7 +15,7 @@ $payload = \Dozor\Payload::json([
 ], $hash);
 $socket = stream_socket_client('tcp://' . $address, $errno, $error, 2);
 if (!is_resource($socket)) {
-    throw new RuntimeException("TCP connect failed: $error ($errno)");
+    throw new \RuntimeException("TCP connect failed: $error ($errno)");
 }
 stream_set_timeout($socket, 2);
 $frame = $payload->pull();
@@ -23,13 +23,13 @@ $written = 0;
 while ($written < strlen($frame)) {
     $n = fwrite($socket, substr($frame, $written));
     if ($n === false || $n === 0) {
-        throw new RuntimeException('Incomplete test frame write');
+        throw new \RuntimeException('Incomplete test frame write');
     }
     $written += $n;
 }
 $ack = fread($socket, 4);
 fclose($socket);
 if ($ack !== '2:OK') {
-    throw new RuntimeException('Unexpected ingest ACK: ' . var_export($ack, true));
+    throw new \RuntimeException('Unexpected ingest ACK: ' . var_export($ack, true));
 }
 echo "PHP Payload compatibility smoke: OK\n";

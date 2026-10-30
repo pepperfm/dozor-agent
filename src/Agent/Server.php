@@ -8,30 +8,11 @@ use Dozor\Console\AgentDebugDashboard;
 use Dozor\Agent\Transport\HostedIngestTransport;
 use Dozor\Telemetry\AgentRuntimeState;
 use Dozor\Tracing\TraceBatchTransformer;
-use JsonException;
 use Symfony\Component\Console\Output\OutputInterface;
-use Throwable;
-
-use function array_chunk;
-use function count;
-use function defined;
-use function Dozor\fclose_safely;
-use function Dozor\fread_all;
-use function Dozor\fwrite_all;
-use function Dozor\stream_configure_read_timeout;
-use function function_exists;
-use function is_array;
-use function is_resource;
-use function max;
-use function microtime;
-use function sprintf;
-use function stream_get_meta_data;
-use function stream_socket_get_name;
-use function strlen;
 
 final class Server
 {
-    private const MAX_FRAME_BYTES = 1_048_576;
+    private const int MAX_FRAME_BYTES = 1_048_576;
 
     private bool $running = true;
 
@@ -113,7 +94,7 @@ final class Server
                 try {
                     $this->handleClient($client);
                     fwrite_all($client, '2:OK');
-                } catch (Throwable $e) {
+                } catch (\Throwable $e) {
                     logger()->error('dozor.agent.ingest.client_error', [
                         'message' => $e->getMessage(),
                         'class' => $e::class,
@@ -198,7 +179,7 @@ final class Server
 
         try {
             $records = json_decode($payload, true, 512, JSON_THROW_ON_ERROR);
-        } catch (JsonException $exception) {
+        } catch (\JsonException $exception) {
             throw new \RuntimeException(
                 sprintf(
                     'Invalid ingest payload JSON [bytes: %d, error: %s]',

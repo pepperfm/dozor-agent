@@ -4,9 +4,8 @@ declare(strict_types=1);
 
 namespace Dozor\Watchers;
 
-use Dozor\Contracts\DozorContract;
 use Illuminate\Log\Events\MessageLogged;
-use Throwable;
+use Dozor\Contracts\DozorContract;
 
 final readonly class LogWatcher
 {
@@ -18,11 +17,11 @@ final readonly class LogWatcher
     {
         try {
             $this->core->recordLogMessage(
-                level: (string) $event->level,
-                message: (string) $event->message,
+                level: $event->level,
+                message: $event->message,
                 context: $event->context,
             );
-        } catch (Throwable) {
+        } catch (\Throwable) {
         }
     }
 }

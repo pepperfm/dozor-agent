@@ -7,7 +7,6 @@ namespace Dozor\Tests\Unit;
 use Dozor\Ingest;
 use Dozor\RecordsBuffer;
 use Dozor\Tests\TestCase;
-use RuntimeException;
 
 final class IngestTest extends TestCase
 {
@@ -22,7 +21,7 @@ final class IngestTest extends TestCase
             streamFactory: static function () use (&$attempts) {
                 $attempts++;
 
-                throw new RuntimeException('agent unreachable');
+                throw new \RuntimeException('agent unreachable');
             },
             buffer: new RecordsBuffer(10),
             tokenHash: 'token-hash',
@@ -54,7 +53,7 @@ final class IngestTest extends TestCase
             streamFactory: static function () use (&$attempts) {
                 $attempts++;
 
-                throw new RuntimeException('agent unreachable');
+                throw new \RuntimeException('agent unreachable');
             },
             buffer: new RecordsBuffer(10),
             tokenHash: 'token-hash',
@@ -87,7 +86,7 @@ final class IngestTest extends TestCase
             connectionTimeout: 0.01,
             timeout: 0.01,
             streamFactory: static function () {
-                throw new RuntimeException('agent unreachable');
+                throw new \RuntimeException('agent unreachable');
             },
             buffer: new RecordsBuffer(2),
             tokenHash: 'token-hash',

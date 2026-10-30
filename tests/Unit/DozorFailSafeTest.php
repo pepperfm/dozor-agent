@@ -7,7 +7,6 @@ namespace Dozor\Tests\Unit;
 use Dozor\Contracts\IngestContract;
 use Dozor\Dozor;
 use Dozor\Tests\TestCase;
-use RuntimeException;
 
 final class DozorFailSafeTest extends TestCase
 {
@@ -16,7 +15,7 @@ final class DozorFailSafeTest extends TestCase
         $ingest = $this->createStub(IngestContract::class);
         $ingest
             ->method('write')
-            ->willThrowException(new RuntimeException('ingest write failed'));
+            ->willThrowException(new \RuntimeException('ingest write failed'));
 
         $dozor = new Dozor($ingest, [
             'enabled' => true,
@@ -38,7 +37,7 @@ final class DozorFailSafeTest extends TestCase
         $ingest = $this->createStub(IngestContract::class);
         $ingest
             ->method('digest')
-            ->willThrowException(new RuntimeException('ingest digest failed'));
+            ->willThrowException(new \RuntimeException('ingest digest failed'));
 
         $dozor = new Dozor($ingest, [
             'enabled' => true,

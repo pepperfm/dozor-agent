@@ -34,10 +34,22 @@ return [
         'ignore_outgoing_http' => env('DOZOR_IGNORE_OUTGOING_HTTP', false),
         'capture_query_sql' => env('DOZOR_CAPTURE_QUERY_SQL', false),
         'request' => [
-            'ignore_paths' => array_values(array_filter(array_map('trim', explode(',', (string) env('DOZOR_IGNORE_PATHS', '/up,/health,/healthz,/ping,/ready'))))),
-            'ignore_path_prefixes' => array_values(array_filter(array_map('trim', explode(',', (string) env('DOZOR_IGNORE_PATH_PREFIXES', '/_ignition,/horizon,/telescope,/pulse'))))),
-            'ignore_route_names' => array_values(array_filter(array_map('trim', explode(',', (string) env('DOZOR_IGNORE_ROUTE_NAMES', 'ignition.healthCheck'))))),
-            'ignore_user_agents_contains' => array_values(array_filter(array_map('trim', explode(',', (string) env('DOZOR_IGNORE_USER_AGENTS', 'bot,spider,crawler,uptime,kube-probe,healthcheck'))))),
+            'ignore_paths' => explode(',', (string) env('DOZOR_IGNORE_PATHS', '/up,/health,/healthz,/ping,/ready'))
+                |> (static fn($x) => array_map('trim', $x))
+                |> array_filter(...)
+                |> array_values(...),
+            'ignore_path_prefixes' => explode(',', (string) env('DOZOR_IGNORE_PATH_PREFIXES', '/_ignition,/horizon,/telescope,/pulse'))
+                |> (static fn($x) => array_map('trim', $x))
+                |> array_filter(...)
+                |> array_values(...),
+            'ignore_route_names' => explode(',', (string) env('DOZOR_IGNORE_ROUTE_NAMES', 'ignition.healthCheck'))
+                |> (static fn($x) => array_map('trim', $x))
+                |> array_filter(...)
+                |> array_values(...),
+            'ignore_user_agents_contains' => explode(',', (string) env('DOZOR_IGNORE_USER_AGENTS', 'bot,spider,crawler,uptime,kube-probe,healthcheck'))
+                |> (static fn($x) => array_map('trim', $x))
+                |> array_filter(...)
+                |> array_values(...),
         ],
     ],
 
@@ -52,8 +64,14 @@ return [
         'capture_request_headers' => env('DOZOR_CAPTURE_REQUEST_HEADERS', false),
         'slow_query_source_threshold_ms' => (float) env('DOZOR_SLOW_QUERY_SOURCE_THRESHOLD_MS', 100.0),
         'capture_outgoing_http_headers' => env('DOZOR_CAPTURE_OUTGOING_HTTP_HEADERS', false),
-        'event_prefixes' => array_values(array_filter(array_map('trim', explode(',', (string) env('DOZOR_EVENT_PREFIXES', 'App\\Events\\,Illuminate\\Auth\\Events\\'))))),
-        'event_ignore' => array_values(array_filter(array_map('trim', explode(',', (string) env('DOZOR_EVENT_IGNORE', 'Illuminate\\Log\\Events\\MessageLogged'))))),
+        'event_prefixes' => explode(',', (string) env('DOZOR_EVENT_PREFIXES', 'App\\Events\\,Illuminate\\Auth\\Events\\'))
+            |> (static fn($x) => array_map('trim', $x))
+            |> array_filter(...)
+            |> array_values(...),
+        'event_ignore' => explode(',', (string) env('DOZOR_EVENT_IGNORE', 'Illuminate\\Log\\Events\\MessageLogged'))
+            |> (static fn($x) => array_map('trim', $x))
+            |> array_filter(...)
+            |> array_values(...),
     ],
 
     'limits' => [
@@ -65,7 +83,10 @@ return [
 
     'http' => [
         'attach_middleware' => env('DOZOR_ATTACH_HTTP_MIDDLEWARE', true),
-        'groups' => array_values(array_filter(array_map('trim', explode(',', (string) env('DOZOR_HTTP_GROUPS', 'web,api'))))),
+        'groups' => explode(',', (string) env('DOZOR_HTTP_GROUPS', 'web,api'))
+            |> (static fn($x) => array_map('trim', $x))
+            |> array_filter(...)
+            |> array_values(...),
     ],
 
     'ingest' => [

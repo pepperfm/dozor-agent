@@ -13,30 +13,24 @@ use Dozor\Sampling\DeterministicSampler;
 use Dozor\Tracing\RequestLifecycleStage;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Http\Request;
+use Illuminate\Queue\Events\JobAttempted;
 use Illuminate\Queue\Events\JobFailed;
 use Illuminate\Queue\Events\JobProcessed;
 use Illuminate\Queue\Events\JobProcessing;
+use Illuminate\Queue\Events\JobReleasedAfterException;
 use Illuminate\Queue\Events\Looping;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Arr;
-use Throwable;
-
-use function hash;
-use function in_array;
-use function is_array;
-use function is_numeric;
-use function is_string;
-use function max;
-use function mb_substr;
-use function round;
-use function substr;
-use function str_starts_with;
 
 class Dozor implements DozorContract
 {
-    private const DEFAULT_RUNTIME_ERROR_COOLDOWN_SECONDS = 60.0;
+    private const float DEFAULT_RUNTIME_ERROR_COOLDOWN_SECONDS = 60.0;
 
     public ?TraceContext $currentTrace = null;
+
+    private bool $jobSuppressed = false;
+
+    private ?int $currentRequestIdentity = null;
 
     /**
      * @var array<string, float>
@@ -108,6 +102,22 @@ class Dozor implements DozorContract
     public function beginRequest(Request $request, ?float $startedAt = null): TraceContext
     {
         $startedAt ??= microtime(true);
+        $requestIdentity = spl_object_id($request);
+
+        if ($this->currentTrace !== null && $this->currentRequestIdentity === $requestIdentity) {
+            return $this->currentTrace;
+        }
+        if ($this->currentTrace !== null && $this->currentRequestIdentity !== $requestIdentity) {
+            $this->currentTrace = null;
+            $this->currentRequestIdentity = null;
+
+            try {
+                logger()->warning('dozor.trace.stale_request_reset', [
+                    'reason' => 'stale_request',
+                ]);
+            } catch (\Throwable) {
+            }
+        }
 
         try {
             $traceId = $this->makeTraceId();
@@ -144,7 +154,7 @@ class Dozor implements DozorContract
                 'cache_sample_rate' => $this->sampler->resolveRate('cache'),
             ];
 
-            if ((bool) $this->config('instrumentation.capture_request_headers', false)) {
+            if ($this->config('instrumentation.capture_request_headers', false)) {
                 $requestMeta['headers'] = $this->redactor->redactHeaders($request->headers->all());
             }
 
@@ -161,11 +171,14 @@ class Dozor implements DozorContract
                 );
             }
 
+            $this->currentRequestIdentity = $requestIdentity;
+
             return $this->currentTrace = $trace;
-        } catch (Throwable $e) {
+        } catch (\Throwable $e) {
             $this->reportRuntimeException('begin_request', $e);
             $this->currentRequestSuppressed = true;
             $this->currentRequestSuppressedReason = 'dozor_runtime_error';
+            $this->currentRequestIdentity = $requestIdentity;
 
             return $this->currentTrace = new TraceContext(
                 traceId: $this->makeTraceId(),
@@ -266,35 +279,62 @@ class Dozor implements DozorContract
         return $this->currentTrace !== null;
     }
 
+    public function abandonActiveRequest(): void
+    {
+        $this->currentTrace = null;
+        $this->currentRequestIdentity = null;
+        $this->currentRequestSuppressed = false;
+        $this->currentRequestSuppressedReason = '';
+    }
+
+    /**
+     * @param list<string> $patterns
+     */
+    public function exclude(array $patterns): void
+    {
+        $this->requestFilter->exclude($patterns);
+    }
+
+    public function suppressIfExcluded(Request $request): void
+    {
+        if (
+            $request->attributes->get('dozor.exclude') === true
+            || $this->requestFilter->shouldIgnoreRequest($request)
+        ) {
+            $this->currentRequestSuppressed = true;
+            $this->currentRequestSuppressedReason = 'filter';
+        }
+    }
+
     public function finishRequest(
         Request $request,
         mixed $response,
         float $startedAt,
-        ?Throwable $e = null
+        ?\Throwable $e = null
     ): void {
         try {
             if (!$this->enabled()) {
                 return;
             }
-
+            if ($request->attributes->get('dozor.exclude') === true) {
+                $this->currentRequestSuppressed = true;
+                $this->currentRequestSuppressedReason = 'filter';
+            }
             if ($this->currentRequestSuppressed) {
                 return;
             }
-
             if (!$this->lifecycleStageIs(RequestLifecycleStage::Sending->value)
                 && !$this->lifecycleStageIs(RequestLifecycleStage::Terminating->value)
                 && !$this->lifecycleStageIs(RequestLifecycleStage::End->value)
             ) {
                 $this->transitionLifecycleStage(RequestLifecycleStage::Sending->value);
             }
-
             if (
                 !$this->lifecycleStageIs(RequestLifecycleStage::Terminating->value)
                 && !$this->lifecycleStageIs(RequestLifecycleStage::End->value)
             ) {
                 $this->transitionLifecycleStage(RequestLifecycleStage::Terminating->value);
             }
-
             if (!$this->lifecycleStageIs(RequestLifecycleStage::End->value)) {
                 $this->transitionLifecycleStage(RequestLifecycleStage::End->value);
             }
@@ -304,7 +344,23 @@ class Dozor implements DozorContract
 
             $traceId = $this->currentTrace?->traceId ?? $this->activeJobTraceId ?? $this->activeCommandTraceId ?? $this->makeTraceId();
             $durationMs = round((microtime(true) - $startedAt) * 1000, 2);
+            if (!$e instanceof \Throwable) {
+                $pending = $request->attributes->get('dozor.pending_exception');
+                $e = $pending instanceof \Throwable ? $pending : null;
+            }
+
             $status = method_exists($response, 'getStatusCode') ? $response->getStatusCode() : ($e ? 500 : 200);
+
+            if (
+                $e instanceof \Throwable
+                && $request->attributes->get('dozor.exception_recorded') !== true
+            ) {
+                $this->recordException($e, [
+                    'phase' => 'http',
+                    'method' => $request->method(),
+                ]);
+                $request->attributes->set('dozor.exception_recorded', true);
+            }
 
             // Route and authenticated user are resolved after beginRequest().
             $route = $request->route();
@@ -326,6 +382,8 @@ class Dozor implements DozorContract
                 'memory_peak_bytes' => memory_get_peak_usage(true),
                 'sampling_dropped' => $this->samplingDropped,
                 'lifecycle_stages' => $this->currentTrace?->lifecycleStages() ?? [],
+                'inertia' => $request->headers->has('X-Inertia') || (method_exists($response, 'headers') && $response->headers->has('X-Inertia')),
+                'ssr_duration_measured' => false,
             ]);
 
             if ((bool) $this->config('capture_request_payload', false) && !$this->config('filtering.ignore_request_payload', false)) {
@@ -346,10 +404,11 @@ class Dozor implements DozorContract
                 'server' => $this->config('server'),
                 'payload' => $payload,
             ]);
-        } catch (Throwable $exception) {
+        } catch (\Throwable $exception) {
             $this->reportRuntimeException('finish_request', $exception);
         } finally {
             $this->currentTrace = null;
+            $this->currentRequestIdentity = null;
             $this->currentRequestSuppressed = false;
             $this->currentRequestSuppressedReason = '';
             $this->samplingDropped = [];
@@ -359,9 +418,9 @@ class Dozor implements DozorContract
     public function recordQuery(QueryExecuted $event): void
     {
         if (
-            !$this->enabled()
+            $this->currentRequestSuppressed
+            || !$this->enabled()
             || $this->config('filtering.ignore_queries', false)
-            || $this->currentRequestSuppressed
         ) {
             return;
         }
@@ -407,7 +466,9 @@ class Dozor implements DozorContract
         $interval = max(10, (int) $this->config('instrumentation.queue_snapshot_interval_seconds', 30));
         $now = microtime(true);
         $connection = $event->connectionName;
-        $queues = array_filter(array_map('trim', explode(',', $event->queue ?: 'default')));
+        $queues = explode(',', $event->queue ?: 'default')
+            |> (static fn($x) => array_map('trim', $x))
+            |> array_filter(...);
         $captured = false;
 
         foreach ($queues as $queue) {
@@ -436,12 +497,12 @@ class Dozor implements DozorContract
                         'queue' => $queue,
                         'connection' => $connection,
                         'size' => max(0, (int) $size),
-                        'worker' => substr(hash('xxh128', (string) $this->config('server') . ':' . getmypid()), 0, 16),
+                        'worker' => substr(hash('xxh128', $this->config('server') . ':' . getmypid()), 0, 16),
                         'server' => (string) $this->config('server'),
                     ],
                 ]);
                 $captured = true;
-            } catch (Throwable $e) {
+            } catch (\Throwable $e) {
                 $this->reportRuntimeException('queue_snapshot', $e);
             }
         }
@@ -455,8 +516,17 @@ class Dozor implements DozorContract
             return;
         }
 
-        $this->samplingDropped = [];
-        $this->activeJobTraceId = $this->makeTraceId();
+        $this->jobSuppressed = false;
+        $traceId = $this->makeTraceId();
+        $samplingKey = $traceId . '|' . $event->connectionName . '|' . $event->job->resolveName();
+        if (!$this->sampler->shouldSample('jobs', $samplingKey)) {
+            $this->jobSuppressed = true;
+            $this->samplingDropped['jobs'] = ($this->samplingDropped['jobs'] ?? 0) + 1;
+
+            return;
+        }
+
+        $this->activeJobTraceId = $traceId;
         $startedAt = microtime(true);
         $this->jobTrace = new TraceContext($this->activeJobTraceId, $startedAt);
         $this->jobStartedAt[$this->jobKey($event)] = $startedAt;
@@ -464,21 +534,17 @@ class Dozor implements DozorContract
 
     public function recordJobFinished(JobProcessed|JobFailed $event): void
     {
+        $preserveDrops = $this->jobSuppressed;
+
         try {
             if (!$this->enabled() || $this->config('filtering.ignore_queue_jobs', false)) {
                 return;
             }
-
-            $traceId = $this->currentTrace?->traceId ?? $this->activeJobTraceId ?? $this->activeCommandTraceId ?? $this->makeTraceId();
-            $samplingKey = $traceId . '|' . $event->connectionName . '|' . $event->job->resolveName();
-
-            if (!$this->sampler->shouldSample('jobs', $samplingKey)) {
-                unset($this->jobStartedAt[$this->jobKey($event)]);
-                $this->activeJobTraceId = null;
-                $this->jobTrace = null;
-
+            if ($this->jobSuppressed) {
                 return;
             }
+
+            $traceId = $this->currentTrace?->traceId ?? $this->activeJobTraceId ?? $this->activeCommandTraceId ?? $this->makeTraceId();
 
             $key = $this->jobKey($event);
             $startedAt = $this->jobStartedAt[$key] ?? microtime(true);
@@ -498,10 +564,11 @@ class Dozor implements DozorContract
                     'connection' => $event->connectionName,
                     'status' => $event instanceof JobFailed ? 'failed' : 'processed',
                     'attempts' => $event->job->attempts(),
-                    'worker' => substr(hash('xxh128', (string) $this->config('server') . ':' . getmypid()), 0, 16),
+                    'worker' => substr(hash('xxh128', $this->config('server') . ':' . getmypid()), 0, 16),
                     'sampling_dropped' => $this->samplingDropped,
                     'request_started_at' => \Illuminate\Support\Carbon::createFromTimestamp($startedAt)->format('Y-m-d\\TH:i:s.uP'),
                     'duration_ms' => round((microtime(true) - $startedAt) * 1000, 2),
+                    ...$this->broadcastFields($event->job->resolveName()),
                     'exception' => $event instanceof JobFailed && $event->exception ? [
                         'class' => $event->exception::class,
                         'message' => $this->safeErrorMessage($event->exception->getMessage()),
@@ -509,29 +576,117 @@ class Dozor implements DozorContract
                 ]),
             ]);
 
-            if ($event instanceof JobFailed && $event->exception instanceof Throwable) {
+            if ($event instanceof JobFailed && $event->exception instanceof \Throwable) {
                 $this->recordException($event->exception, [
                     'phase' => 'queue',
                     'job' => $event->job->resolveName(),
                 ]);
             }
-
-            $this->activeJobTraceId = null;
-            $this->jobTrace = null;
         } finally {
-            // Long-running Horizon/native workers must not carry the previous
-            // job's trace context into the next job after an exception.
-            $this->jobStartedAt = [];
-            $this->samplingDropped = [];
-            $this->activeJobTraceId = null;
-            $this->jobTrace = null;
+            $drops = $this->samplingDropped;
+            $this->clearJobContext();
+            if ($preserveDrops) {
+                $this->samplingDropped = $drops;
+            }
         }
+    }
+
+    public function recordJobReleased(JobReleasedAfterException $event): void
+    {
+        try {
+            if ($this->jobSuppressed || !$this->enabled() || $this->config('filtering.ignore_queue_jobs', false)) {
+                $this->clearJobContext();
+
+                return;
+            }
+
+            $traceId = $this->currentTrace?->traceId ?? $this->activeJobTraceId ?? $this->makeTraceId();
+            $key = $this->jobKey($event);
+            $startedAt = $this->jobStartedAt[$key] ?? microtime(true);
+
+            $this->report([
+                'type' => $this->currentTrace !== null ? 'job_child' : 'job',
+                'trace_id' => $traceId,
+                'happened_at' => $this->isoTime(),
+                'app' => $this->config('app_name'),
+                'environment' => $this->config('environment'),
+                'server' => $this->config('server'),
+                'payload' => $this->attachSpanOffsets([
+                    'name' => $event->job->resolveName(),
+                    'queue' => $event->job->getQueue(),
+                    'connection' => $event->connectionName,
+                    'status' => 'released',
+                    'attempts' => $event->job->attempts(),
+                    'sampling_dropped' => $this->samplingDropped,
+                    'duration_ms' => round((microtime(true) - $startedAt) * 1000, 2),
+                    ...$this->broadcastFields($event->job->resolveName()),
+                ]),
+            ]);
+
+            if ($event->exception instanceof \Throwable) {
+                $this->recordException($event->exception, [
+                    'phase' => 'queue',
+                    'job' => $event->job->resolveName(),
+                ]);
+            }
+        } finally {
+            $this->clearJobContext();
+        }
+    }
+
+    public function noteJobAttempt(JobAttempted $event): void
+    {
+        if ($this->jobTrace === null && $this->activeJobTraceId === null) {
+            return;
+        }
+
+        $this->clearJobContext();
+    }
+
+    public function resetQueueWorker(): void
+    {
+        if ($this->jobTrace !== null || $this->activeJobTraceId !== null) {
+            try {
+                logger()->warning('dozor.queue.context_reset', [
+                    'reason' => 'worker_boundary',
+                ]);
+            } catch (\Throwable) {
+            }
+        }
+
+        $this->clearJobContext();
+    }
+
+    /**
+     * @return array{broadcast?: bool, broadcast_name?: string}
+     */
+    private function broadcastFields(string $jobName): array
+    {
+        if (!str_contains($jobName, 'BroadcastEvent')) {
+            return [];
+        }
+
+        $short = str_contains($jobName, '\\') ? substr($jobName, (int) strrpos($jobName, '\\') + 1) : $jobName;
+
+        return [
+            'broadcast' => true,
+            'broadcast_name' => $short,
+        ];
+    }
+
+    private function clearJobContext(): void
+    {
+        $this->jobStartedAt = [];
+        $this->samplingDropped = [];
+        $this->activeJobTraceId = null;
+        $this->jobTrace = null;
+        $this->jobSuppressed = false;
     }
 
     /**
      * @param array<string, mixed> $context
      */
-    public function recordException(Throwable $e, array $context = []): void
+    public function recordException(\Throwable $e, array $context = []): void
     {
         if (!$this->enabled()) {
             return;
@@ -556,10 +711,9 @@ class Dozor implements DozorContract
 
         $payload = $this->attachSpanOffsets($payload);
 
-        if ((bool) $this->config('capture_exception_source_code', false)) {
+        if ($this->config('capture_exception_source_code', false)) {
             $payload['snippet'] = $this->sourceSnippet($e->getFile(), $e->getLine());
         }
-
         if ($e->getTrace() !== []) {
             $payload['stacktrace'] = $this->boundedStacktrace($e);
         }
@@ -578,9 +732,9 @@ class Dozor implements DozorContract
     public function recordOutgoingHttp(array $payload): void
     {
         if (
-            !$this->enabled()
+            $this->currentRequestSuppressed
+            || !$this->enabled()
             || $this->config('filtering.ignore_outgoing_http', false)
-            || $this->currentRequestSuppressed
         ) {
             return;
         }
@@ -603,11 +757,9 @@ class Dozor implements DozorContract
         if (is_array(Arr::get($payload, 'request_headers'))) {
             $payload['request_headers'] = $this->redactor->redactHeaders((array) Arr::get($payload, 'request_headers', []));
         }
-
         if (is_array(Arr::get($payload, 'response_headers'))) {
             $payload['response_headers'] = $this->redactor->redactHeaders((array) Arr::get($payload, 'response_headers', []));
         }
-
         if (is_string(Arr::get($payload, 'url'))) {
             $payload['url'] = $this->safeUrl((string) $payload['url']);
         }
@@ -634,7 +786,7 @@ class Dozor implements DozorContract
      */
     public function recordCacheEvent(array $payload): void
     {
-        if (!$this->enabled() || $this->currentRequestSuppressed) {
+        if ($this->currentRequestSuppressed || !$this->enabled()) {
             return;
         }
 
@@ -673,7 +825,6 @@ class Dozor implements DozorContract
         if (!$this->enabled() || !$this->config('instrumentation.capture_logs', false)) {
             return;
         }
-
         if ($this->capturingLogs || str_starts_with($message, 'dozor.')) {
             return;
         }
@@ -708,8 +859,12 @@ class Dozor implements DozorContract
 
     public function startFrameworkCommand(string $command): void
     {
-        if (!$this->enabled() || $this->activeCommandTraceId !== null
-            || $this->currentTrace !== null || $this->activeJobTraceId !== null) {
+        if (
+            $this->currentTrace !== null
+            || $this->activeCommandTraceId !== null
+            || $this->activeJobTraceId !== null
+            || !$this->enabled()
+        ) {
             return;
         }
 
@@ -819,6 +974,13 @@ class Dozor implements DozorContract
                 return;
             }
 
+            if (
+                $this->currentRequestSuppressed
+                && (($record['trace_id'] ?? null) === null || ($record['trace_id'] ?? null) === $this->currentTrace?->traceId)
+            ) {
+                return;
+            }
+
             $record['record_id'] ??= $this->makeTraceId();
             $record['deployment'] ??= $this->config('deployment');
             $record['release'] ??= $this->config('release', $this->config('deployment'));
@@ -843,7 +1005,7 @@ class Dozor implements DozorContract
             }
 
             $this->ingest->write($record);
-        } catch (Throwable $exception) {
+        } catch (\Throwable $exception) {
             $this->reportRuntimeException('report', $exception);
         }
     }
@@ -852,7 +1014,7 @@ class Dozor implements DozorContract
     {
         try {
             $this->ingest->digest();
-        } catch (Throwable $exception) {
+        } catch (\Throwable $exception) {
             $this->reportRuntimeException('digest', $exception);
         }
     }
@@ -910,8 +1072,7 @@ class Dozor implements DozorContract
         $sql = preg_replace('/\$\$[\s\S]*?\$\$|\$([A-Za-z_][A-Za-z_0-9]*)\$[\s\S]*?\$\1\$/', '?', $sql) ?? $sql;
         $sql = preg_replace('/\/\*[\s\S]*?\*\/|--[^\r\n]*/', ' ', $sql) ?? $sql;
         $sql = preg_replace('/\x27(?:\x27\x27|[^\x27])*\x27/', '?', $sql) ?? $sql;
-        $sql = preg_replace_callback('/"(?:""|[^"])*"/', static fn(array $match): string =>
-            '"id:' . substr(hash('sha256', $match[0]), 0, 12) . '"', $sql) ?? $sql;
+        $sql = preg_replace_callback('/"(?:""|[^"])*"/', static fn(array $match): string => '"id:' . substr(hash('sha256', $match[0]), 0, 12) . '"', $sql) ?? $sql;
         $sql = preg_replace('/\b\d+(?:\.\d+)?\b/', '?', $sql) ?? $sql;
 
         return trim(preg_replace('/\s+/', ' ', $sql) ?? $sql);
@@ -940,7 +1101,7 @@ class Dozor implements DozorContract
     /**
      * @return list<array{file: string, line: int, call: string}>
      */
-    private function boundedStacktrace(Throwable $exception): array
+    private function boundedStacktrace(\Throwable $exception): array
     {
         $frames = [];
         foreach (array_slice($exception->getTrace(), 0, 15) as $frame) {
@@ -948,7 +1109,7 @@ class Dozor implements DozorContract
             $frames[] = [
                 'file' => $file !== '' ? basename($file) : '',
                 'line' => (int) ($frame['line'] ?? 0),
-                'call' => mb_substr((string) ($frame['class'] ?? '') . (string) ($frame['type'] ?? '') . (string) ($frame['function'] ?? ''), 0, 255),
+                'call' => mb_substr(($frame['class'] ?? '') . ($frame['type'] ?? '') . ($frame['function'] ?? ''), 0, 255),
             ];
         }
 
@@ -982,13 +1143,10 @@ class Dozor implements DozorContract
 
         $start = max($line - 3, 1);
         $end = min($line + 2, count($lines));
-        $snippet = [];
 
-        for ($i = $start; $i <= $end; $i++) {
-            $snippet[$i] = $lines[$i - 1];
-        }
+        $i = $start;
 
-        return $snippet;
+        return array_fill($start, $end - $start + 1, $lines[$i - 1]);
     }
 
     private function countSamplingDrop(string $channel): void
@@ -1026,19 +1184,16 @@ class Dozor implements DozorContract
         if ($resolvedDurationUs === null && is_numeric(Arr::get($payload, 'duration_us'))) {
             $resolvedDurationUs = max(1, (int) round((float) Arr::get($payload, 'duration_us', 1)));
         }
-
         if ($resolvedDurationUs === null) {
             $durationValue = $this->resolveNumeric(
                 $payload,
                 ['duration_ms', 'time_ms'],
                 default: -1.0,
             );
-
             if ($durationValue >= 0) {
                 $resolvedDurationUs = max(1, (int) round($durationValue * 1000));
             }
         }
-
         if ($resolvedDurationUs !== null) {
             $resolvedDurationUs = max(1, $resolvedDurationUs);
             $payload['duration_us'] = $resolvedDurationUs;
@@ -1073,16 +1228,16 @@ class Dozor implements DozorContract
         return $default;
     }
 
-    private function jobKey(JobProcessing|JobProcessed|JobFailed $event): string
+    private function jobKey(JobProcessing|JobProcessed|JobFailed|JobReleasedAfterException|JobAttempted $event): string
     {
         $jobId = method_exists($event->job, 'uuid') ?
-            ($event->job->uuid() ?: spl_object_id($event->job)) :
-            spl_object_id($event->job);
+            ($event->job->uuid() ?: spl_object_id($event->job))
+            : spl_object_id($event->job);
 
         return $event->connectionName . '|' . $event->job->resolveName() . '|' . $jobId;
     }
 
-    private function reportRuntimeException(string $operation, Throwable $exception): void
+    private function reportRuntimeException(string $operation, \Throwable $exception): void
     {
         $message = $exception->getMessage();
         $message = $message === '' ? '[empty-message]' : $message;
@@ -1106,7 +1261,7 @@ class Dozor implements DozorContract
                 'exception_class' => $exception::class,
                 'message' => $exception->getMessage(),
             ]);
-        } catch (Throwable) {
+        } catch (\Throwable) {
         }
     }
 }

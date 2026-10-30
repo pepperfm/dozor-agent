@@ -6,12 +6,6 @@ namespace Dozor\Sampling;
 
 use Illuminate\Support\Arr;
 
-use function hash;
-use function hexdec;
-use function is_numeric;
-use function max;
-use function min;
-
 final readonly class DeterministicSampler
 {
     /**

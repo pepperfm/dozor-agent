@@ -8,8 +8,6 @@ use Dozor\Ingest;
 use Dozor\RecordsBuffer;
 use Dozor\SocketStreamFactory;
 use Dozor\Tests\TestCase;
-use RuntimeException;
-use Throwable;
 
 final class IngestResilienceIntegrationTest extends TestCase
 {
@@ -79,7 +77,7 @@ PHP
                     $attempts++;
 
                     if ($attempts === 1) {
-                        throw new RuntimeException('Simulated first transport failure');
+                        throw new \RuntimeException('Simulated first transport failure');
                     }
 
                     return $socketFactory($address, $timeout);
@@ -144,7 +142,7 @@ PHP
             retryCooldownSeconds: 0.05,
         );
 
-        $this->expectException(RuntimeException::class);
+        $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('Unable to connect to Dozor agent');
 
         $ingest->ping();
@@ -156,7 +154,7 @@ PHP
             $ingest->ping();
 
             return true;
-        } catch (Throwable) {
+        } catch (\Throwable) {
             return false;
         }
     }

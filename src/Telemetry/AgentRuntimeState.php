@@ -5,19 +5,6 @@ declare(strict_types=1);
 namespace Dozor\Telemetry;
 
 use Illuminate\Support\Arr;
-use RuntimeException;
-use Throwable;
-
-use function bin2hex;
-use function dirname;
-use function is_array;
-use function is_dir;
-use function json_decode;
-use function json_encode;
-use function mkdir;
-use function random_bytes;
-use function sprintf;
-use function unlink;
 
 final class AgentRuntimeState
 {
@@ -158,7 +145,7 @@ final class AgentRuntimeState
             $state['lifecycle']['updated_at'] = $this->nowIso();
 
             $this->write($state);
-        } catch (Throwable) {
+        } catch (\Throwable) {
         }
     }
 
@@ -181,7 +168,7 @@ final class AgentRuntimeState
             $decoded = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
 
             return is_array($decoded) ? $decoded : [];
-        } catch (Throwable) {
+        } catch (\Throwable) {
             return [];
         }
     }
@@ -194,7 +181,7 @@ final class AgentRuntimeState
         $directory = dirname($this->statePath);
 
         if (!is_dir($directory) && !mkdir($directory, 0775, true) && !is_dir($directory)) {
-            throw new RuntimeException("Unable to create telemetry directory [$directory]");
+            throw new \RuntimeException("Unable to create telemetry directory [$directory]");
         }
 
         $tempPath = sprintf('%s.tmp-%s', $this->statePath, bin2hex(random_bytes(6)));
@@ -205,7 +192,7 @@ final class AgentRuntimeState
         if (!@rename($tempPath, $this->statePath)) {
             @unlink($tempPath);
 
-            throw new RuntimeException("Unable to persist telemetry state [$this->statePath]");
+            throw new \RuntimeException("Unable to persist telemetry state [$this->statePath]");
         }
     }
 

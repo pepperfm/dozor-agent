@@ -4,11 +4,10 @@ declare(strict_types=1);
 
 namespace Dozor\Watchers;
 
-use Dozor\Contracts\DozorContract;
 use Illuminate\Cache\Events\CacheHit;
 use Illuminate\Cache\Events\CacheMissed;
 use Illuminate\Cache\Events\KeyWritten;
-use Throwable;
+use Dozor\Contracts\DozorContract;
 
 final readonly class CacheWatcher
 {
@@ -21,10 +20,10 @@ final readonly class CacheWatcher
         try {
             $this->core->recordCacheEvent([
                 'operation' => 'hit',
-                'key' => (string) $event->key,
+                'key' => $event->key,
                 'store' => $event->storeName,
             ]);
-        } catch (Throwable) {
+        } catch (\Throwable) {
         }
     }
 
@@ -33,10 +32,10 @@ final readonly class CacheWatcher
         try {
             $this->core->recordCacheEvent([
                 'operation' => 'miss',
-                'key' => (string) $event->key,
+                'key' => $event->key,
                 'store' => $event->storeName,
             ]);
-        } catch (Throwable) {
+        } catch (\Throwable) {
         }
     }
 
@@ -45,10 +44,10 @@ final readonly class CacheWatcher
         try {
             $this->core->recordCacheEvent([
                 'operation' => 'write',
-                'key' => (string) $event->key,
+                'key' => $event->key,
                 'store' => $event->storeName,
             ]);
-        } catch (Throwable) {
+        } catch (\Throwable) {
         }
     }
 }

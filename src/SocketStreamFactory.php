@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace Dozor;
 
-use RuntimeException;
-
 final class SocketStreamFactory
 {
     /**
@@ -15,7 +13,7 @@ final class SocketStreamFactory
     {
         $stream = @stream_socket_client($address, $errorCode, $errorMessage, $timeout);
         if ($stream === false) {
-            throw new RuntimeException(sprintf('Unable to connect to Dozor agent [%s:%s] at %s', $errorCode, $errorMessage, $address));
+            throw new \RuntimeException(sprintf('Unable to connect to Dozor agent [%s:%s] at %s', $errorCode, $errorMessage, $address));
         }
 
         return $stream;

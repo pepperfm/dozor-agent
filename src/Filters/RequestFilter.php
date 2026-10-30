@@ -7,19 +7,35 @@ namespace Dozor\Filters;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
 
-use function is_string;
-use function str_contains;
-use function str_starts_with;
-use function strtolower;
-use function trim;
-
-final readonly class RequestFilter
+final class RequestFilter
 {
     /**
      * @param array<string, mixed> $config
      */
-    public function __construct(private array $config)
+    public function __construct(private readonly array $config)
     {
+    }
+
+    /**
+     * @var list<string>
+     */
+    private array $excludedRoutes = [];
+
+    /**
+     * @param list<string> $patterns
+     */
+    public function exclude(array $patterns): void
+    {
+        foreach ($patterns as $pattern) {
+            if (!is_string($pattern)) {
+                continue;
+            }
+
+            $normalized = trim($pattern);
+            if ($normalized !== '' && !in_array($normalized, $this->excludedRoutes, true)) {
+                $this->excludedRoutes[] = $normalized;
+            }
+        }
     }
 
     public function shouldIgnoreRequest(Request $request, bool $checkResolvedRoute = true): bool
@@ -27,11 +43,9 @@ final readonly class RequestFilter
         if ($this->isIgnoredPath('/' . ltrim($request->path(), '/'))) {
             return true;
         }
-
         if ($checkResolvedRoute && $this->isIgnoredRouteName($request->route()?->getName())) {
             return true;
         }
-
         if ($this->isIgnoredUserAgent($request->userAgent())) {
             return true;
         }
@@ -48,7 +62,7 @@ final readonly class RequestFilter
             }
 
             $normalized = trim($ignoredPath);
-            if ($normalized !== '' && $path === $normalized) {
+            if ($normalized !== '' && $this->matches($normalized, $path)) {
                 return true;
             }
         }
@@ -81,12 +95,12 @@ final readonly class RequestFilter
             }
 
             $normalized = trim($ignoredRouteName);
-            if ($normalized !== '' && $routeName === $normalized) {
+            if ($normalized !== '' && $this->matches($normalized, $routeName)) {
                 return true;
             }
         }
 
-        return false;
+        return array_any($this->excludedRoutes, fn($pattern) => $this->matches($pattern, $routeName));
     }
 
     private function isIgnoredUserAgent(?string $userAgent): bool
@@ -110,5 +124,14 @@ final readonly class RequestFilter
         }
 
         return false;
+    }
+
+    private function matches(string $pattern, string $value): bool
+    {
+        if (str_contains($pattern, '*')) {
+            return str($value)->is($pattern);
+        }
+
+        return $pattern === $value;
     }
 }

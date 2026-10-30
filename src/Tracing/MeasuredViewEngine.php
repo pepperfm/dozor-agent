@@ -6,7 +6,6 @@ namespace Dozor\Tracing;
 
 use Dozor\Contracts\DozorContract;
 use Illuminate\Contracts\View\Engine;
-use Throwable;
 
 /**
  * Wraps the actual Blade/PHP template engine. This measures template execution,
@@ -33,7 +32,7 @@ final readonly class MeasuredViewEngine implements Engine
                     'duration_ms' => round((microtime(true) - $startedAt) * 1000, 3),
                     'engine' => $this->delegate::class,
                 ]);
-            } catch (Throwable) {
+            } catch (\Throwable) {
                 // Observability must never alter rendering or hide a view exception.
             }
         }

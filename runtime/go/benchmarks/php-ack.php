@@ -21,7 +21,7 @@ for ($i = 0; $i < $count; $i++) {
     $started = hrtime(true);
     $socket = stream_socket_client('tcp://' . $address, $errorCode, $error, 3);
     if (!is_resource($socket)) {
-        throw new RuntimeException("Socket unavailable: $error");
+        throw new \RuntimeException("Socket unavailable: $error");
     }
     stream_set_timeout($socket, 5);
     $frame = $payload->pull();
@@ -29,14 +29,14 @@ for ($i = 0; $i < $count; $i++) {
     while ($written < strlen($frame)) {
         $size = fwrite($socket, substr($frame, $written));
         if ($size === false || $size === 0) {
-            throw new RuntimeException('Incomplete frame write');
+            throw new \RuntimeException('Incomplete frame write');
         }
         $written += $size;
     }
     $ack = fread($socket, 4);
     fclose($socket);
     if ($ack !== '2:OK') {
-        throw new RuntimeException('ACK rejected: ' . $ack);
+        throw new \RuntimeException('ACK rejected: ' . $ack);
     }
     $latencies[] = (hrtime(true) - $started) / 1_000_000;
 }

@@ -283,11 +283,20 @@ func sendHeartbeat(ctx context.Context, q *spool.Queue, tr *transform.Transforme
 				continue
 			}
 			record := map[string]any{
-				"type": "heartbeat", "trace_id": transform.NewTraceID(),
+				"type":        "heartbeat",
+				"trace_id":    transform.NewTraceID(),
 				"happened_at": now.UTC().Format("2006-01-02T15:04:05-07:00"),
-				"app":         tr.AppName, "environment": tr.Environment, "server": tr.ServerName,
-				"payload": map[string]any{"status": "healthy", "uptime_seconds": int(now.Sub(started).Seconds()),
-					"queue_depth": queued, "failed_queue_depth": failed, "memory_peak_bytes": 0},
+				"app":         tr.AppName,
+				"environment": tr.Environment,
+				"server":      tr.ServerName,
+				"payload": map[string]any{
+					"status":             "healthy",
+					"uptime_seconds":     int(now.Sub(started).Seconds()),
+					"queue_depth":        queued,
+					"failed_queue_depth": failed,
+					"dropped_batches":    q.Rejected(),
+					"memory_peak_bytes":  0,
+				},
 			}
 			body, err := json.Marshal([]any{record})
 			if err != nil {

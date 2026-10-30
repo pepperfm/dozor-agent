@@ -8,26 +8,6 @@ use Dozor\Ingest;
 use Dozor\RecordsBuffer;
 use Dozor\SocketStreamFactory;
 use Dozor\Tests\TestCase;
-use Throwable;
-
-use function date;
-use function escapeshellarg;
-use function file_exists;
-use function file_get_contents;
-use function fgets;
-use function fclose;
-use function fopen;
-use function fwrite;
-use function is_array;
-use function is_resource;
-use function proc_close;
-use function proc_get_status;
-use function proc_open;
-use function proc_terminate;
-use function sprintf;
-use function stream_set_timeout;
-use function stream_socket_client;
-use function usleep;
 
 final class IngestServerIntegrationTest extends TestCase
 {
@@ -327,7 +307,7 @@ PHP
             $ingest->ping();
 
             return true;
-        } catch (Throwable) {
+        } catch (\Throwable) {
             return false;
         }
     }

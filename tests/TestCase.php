@@ -10,20 +10,6 @@ use Illuminate\Support\Facades\Facade;
 use PHPUnit\Framework\TestCase as PHPUnitTestCase;
 use Psr\Log\NullLogger;
 
-use function array_map;
-use function explode;
-use function fclose;
-use function is_dir;
-use function is_file;
-use function mkdir;
-use function rmdir;
-use function stream_socket_server;
-use function stream_socket_get_name;
-use function sys_get_temp_dir;
-use function trim;
-use function uniqid;
-use function unlink;
-
 abstract class TestCase extends PHPUnitTestCase
 {
     /**

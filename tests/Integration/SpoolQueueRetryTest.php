@@ -7,8 +7,6 @@ namespace Dozor\Tests\Integration;
 use Dozor\Agent\SpoolQueue;
 use Dozor\Tests\TestCase;
 
-use function usleep;
-
 final class SpoolQueueRetryTest extends TestCase
 {
     public function test_it_bounds_total_spool_storage_across_queued_and_failed_batches(): void

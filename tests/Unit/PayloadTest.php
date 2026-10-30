@@ -6,11 +6,6 @@ namespace Dozor\Tests\Unit;
 
 use Dozor\Payload;
 use Dozor\Tests\TestCase;
-use RuntimeException;
-
-use function explode;
-use function strlen;
-use function substr;
 
 final class PayloadTest extends TestCase
 {
@@ -34,7 +29,7 @@ final class PayloadTest extends TestCase
         $payload = Payload::text('PING', 'hash123');
         $payload->pull();
 
-        $this->expectException(RuntimeException::class);
+        $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('Payload has already been read');
 
         $payload->pull();

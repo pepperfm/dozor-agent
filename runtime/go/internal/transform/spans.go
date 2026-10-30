@@ -35,6 +35,12 @@ func rootSpan(record obj, rootType, startedAt, app, environment string) obj {
 		if get(payload, "attempts") != nil {
 			metadata["attempts"] = get(payload, "attempts")
 		}
+		if get(payload, "broadcast") == true {
+			metadata["broadcast"] = true
+		}
+		if name := firstString(payload, "broadcast_name"); name != "" {
+			metadata["broadcast_name"] = name
+		}
 	}
 	if rootType == "command" && get(payload, "details.exit_code") != nil {
 		metadata["exit_code"] = get(payload, "details.exit_code")

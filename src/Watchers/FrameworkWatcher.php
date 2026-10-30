@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Dozor\Watchers;
 
-use Dozor\Contracts\DozorContract;
 use Illuminate\Console\Events\CommandFinished;
 use Illuminate\Console\Events\CommandStarting;
 use Illuminate\Console\Events\ScheduledTaskFailed;
@@ -12,9 +11,9 @@ use Illuminate\Console\Events\ScheduledTaskFinished;
 use Illuminate\Console\Events\ScheduledTaskSkipped;
 use Illuminate\Mail\Events\MessageSent;
 use Illuminate\Notifications\Events\NotificationSent;
-use Throwable;
+use Dozor\Contracts\DozorContract;
 
-/**
+/*
  * Collects only framework lifecycle metadata, never mail content,
  * notification payloads, console arguments, or scheduler command strings.
  */
@@ -37,7 +36,7 @@ final class FrameworkWatcher
         $this->commandStartedAt[$name] = microtime(true);
         try {
             $this->core->startFrameworkCommand($name);
-        } catch (Throwable) {
+        } catch (\Throwable) {
         }
     }
 
@@ -61,7 +60,7 @@ final class FrameworkWatcher
         } finally {
             try {
                 $this->core->finishFrameworkCommand($name);
-            } catch (Throwable) {
+            } catch (\Throwable) {
             }
         }
     }
@@ -102,7 +101,7 @@ final class FrameworkWatcher
     {
         $this->record('notification.sent', [
             'notification' => $event->notification::class,
-            'channel' => (string) $event->channel,
+            'channel' => $event->channel,
         ]);
     }
 
@@ -111,7 +110,7 @@ final class FrameworkWatcher
     {
         try {
             $this->core->recordFrameworkEvent($name, $data);
-        } catch (Throwable) {
+        } catch (\Throwable) {
             // Monitoring must never change application execution.
         }
     }

@@ -8,41 +8,6 @@ use Dozor\Ingest;
 use Dozor\RecordsBuffer;
 use Dozor\SocketStreamFactory;
 use Dozor\Tests\TestCase;
-use Throwable;
-
-use function array_filter;
-use function array_map;
-use function array_values;
-use function count;
-use function dirname;
-use function escapeshellarg;
-use function fclose;
-use function file;
-use function file_exists;
-use function file_get_contents;
-use function file_put_contents;
-use function glob;
-use function in_array;
-use function is_array;
-use function is_resource;
-use function is_string;
-use function json_decode;
-use function proc_close;
-use function proc_get_status;
-use function proc_open;
-use function proc_terminate;
-use function sprintf;
-use function stream_context_create;
-use function trim;
-use function usleep;
-use function var_export;
-use const DIRECTORY_SEPARATOR;
-use const FILE_APPEND;
-use const FILE_IGNORE_NEW_LINES;
-use const FILE_SKIP_EMPTY_LINES;
-use const JSON_THROW_ON_ERROR;
-use const LOCK_EX;
-use const PHP_EOL;
 
 final class DaemonHostedIngestE2ETest extends TestCase
 {
@@ -409,7 +374,7 @@ final class DaemonHostedIngestE2ETest extends TestCase
             $ingest->ping();
 
             return true;
-        } catch (Throwable) {
+        } catch (\Throwable) {
             return false;
         }
     }

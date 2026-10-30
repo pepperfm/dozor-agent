@@ -5,13 +5,6 @@ declare(strict_types=1);
 namespace Dozor\Watchers;
 
 use Dozor\Contracts\DozorContract;
-use Throwable;
-
-use function get_debug_type;
-use function is_array;
-use function is_object;
-use function is_scalar;
-use function str_starts_with;
 
 final readonly class ApplicationEventWatcher
 {
@@ -75,7 +68,7 @@ final readonly class ApplicationEventWatcher
 
         try {
             $this->core->recordApplicationEvent($eventName, $payload);
-        } catch (Throwable) {
+        } catch (\Throwable) {
         }
     }
 

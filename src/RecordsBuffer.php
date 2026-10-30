@@ -4,12 +4,10 @@ declare(strict_types=1);
 
 namespace Dozor;
 
-use Countable;
-
 /**
  * @internal
  */
-final class RecordsBuffer implements Countable
+final class RecordsBuffer implements \Countable
 {
     /**
      * @var list<array<string, mixed>>
@@ -57,6 +55,9 @@ final class RecordsBuffer implements Countable
         return $this->records;
     }
 
+    /**
+     * @throws \JsonException
+     */
     public function pull(string $tokenHash): Payload
     {
         if ($this->records === []) {

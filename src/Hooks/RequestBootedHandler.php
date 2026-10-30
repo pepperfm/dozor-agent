@@ -8,7 +8,6 @@ use Dozor\Contracts\DozorContract;
 use Dozor\Tracing\RequestLifecycleStage;
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Http\Request;
-use Throwable;
 
 final readonly class RequestBootedHandler
 {
@@ -39,14 +38,12 @@ final readonly class RequestBootedHandler
 
             $startedAt = (float) $startedAt;
 
-            if (!$this->core->hasActiveRequestTrace()) {
-                $this->core->beginRequest($request, $startedAt);
-            }
+            $this->core->beginRequest($request, $startedAt);
 
             if (!$this->core->lifecycleStageIs(RequestLifecycleStage::BeforeMiddleware->value)) {
                 $this->core->transitionLifecycleStage(RequestLifecycleStage::BeforeMiddleware->value);
             }
-        } catch (Throwable) {
+        } catch (\Throwable) {
         }
     }
 }

@@ -7,11 +7,12 @@ namespace Dozor\Contracts;
 use Dozor\Context\TraceContext;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Http\Request;
+use Illuminate\Queue\Events\JobAttempted;
 use Illuminate\Queue\Events\JobFailed;
 use Illuminate\Queue\Events\JobProcessed;
 use Illuminate\Queue\Events\JobProcessing;
+use Illuminate\Queue\Events\JobReleasedAfterException;
 use Illuminate\Queue\Events\Looping;
-use Throwable;
 
 interface DozorContract
 {
@@ -23,7 +24,7 @@ interface DozorContract
         Request $request,
         mixed $response,
         float $startedAt,
-        ?Throwable $e = null
+        ?\Throwable $e = null
     ): void;
 
     public function recordQuery(QueryExecuted $event): void;
@@ -33,6 +34,12 @@ interface DozorContract
     public function recordQueueLoop(Looping $event): bool;
 
     public function recordJobFinished(JobProcessed|JobFailed $event): void;
+
+    public function recordJobReleased(JobReleasedAfterException $event): void;
+
+    public function noteJobAttempt(JobAttempted $event): void;
+
+    public function resetQueueWorker(): void;
 
     /**
      * @param array<string, mixed> $metadata
@@ -53,10 +60,19 @@ interface DozorContract
 
     public function hasActiveRequestTrace(): bool;
 
+    public function abandonActiveRequest(): void;
+
+    /**
+     * @param list<string> $patterns
+     */
+    public function exclude(array $patterns): void;
+
+    public function suppressIfExcluded(Request $request): void;
+
     /**
      * @param array<string, mixed> $context
      */
-    public function recordException(Throwable $e, array $context = []): void;
+    public function recordException(\Throwable $e, array $context = []): void;
 
     /**
      * @param array<string, mixed> $payload

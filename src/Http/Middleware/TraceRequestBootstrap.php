@@ -4,12 +4,10 @@ declare(strict_types=1);
 
 namespace Dozor\Http\Middleware;
 
-use Closure;
 use Dozor\Contracts\DozorContract;
 use Dozor\Tracing\RequestLifecycleStage;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
-use Throwable;
 
 final readonly class TraceRequestBootstrap
 {
@@ -21,7 +19,7 @@ final readonly class TraceRequestBootstrap
     {
     }
 
-    public function handle(Request $request, Closure $next): mixed
+    public function handle(Request $request, \Closure $next): mixed
     {
         if (!$this->core->enabled()) {
             return $next($request);
@@ -34,9 +32,8 @@ final readonly class TraceRequestBootstrap
 
         $startedAt = (float) $startedAt;
 
-        if (!$this->core->hasActiveRequestTrace()) {
-            $this->capture(fn() => $this->core->beginRequest($request, $startedAt));
-        }
+        $this->capture(fn() => $this->core->beginRequest($request, $startedAt));
+        $this->capture(fn() => $this->core->suppressIfExcluded($request));
 
         $request->attributes->set(self::STARTED_AT_ATTRIBUTE, $startedAt);
         $request->attributes->set(self::PENDING_FINISH_ATTRIBUTE, true);
@@ -47,7 +44,7 @@ final readonly class TraceRequestBootstrap
 
         try {
             return $next($request);
-        } catch (Throwable $e) {
+        } catch (\Throwable $e) {
             $this->recordExceptionOnce($request, $e);
 
             throw $e;
@@ -77,11 +74,11 @@ final readonly class TraceRequestBootstrap
     {
         try {
             $callback();
-        } catch (Throwable) {
+        } catch (\Throwable) {
         }
     }
 
-    private function recordExceptionOnce(Request $request, Throwable $e): void
+    private function recordExceptionOnce(Request $request, \Throwable $e): void
     {
         if ((bool) $request->attributes->get(self::EXCEPTION_RECORDED_ATTRIBUTE, false)) {
             return;

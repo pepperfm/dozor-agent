@@ -4,18 +4,12 @@ declare(strict_types=1);
 
 namespace Dozor;
 
-use RuntimeException;
-
-use function in_array;
-use function json_encode;
-use function strlen;
-
 /**
  * @internal
  */
 final class Payload
 {
-    public const PAYLOAD_VERSION = 'v1';
+    public const string PAYLOAD_VERSION = 'v1';
 
     private bool $pulled = false;
 
@@ -46,7 +40,7 @@ final class Payload
     public function pull(): string
     {
         if ($this->pulled) {
-            throw new RuntimeException('Payload has already been read');
+            throw new \RuntimeException('Payload has already been read');
         }
 
         $this->pulled = true;

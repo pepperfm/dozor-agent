@@ -10,8 +10,6 @@ use Dozor\Dozor;
 use Dozor\Tests\TestCase;
 use Dozor\Tracing\TraceBatchTransformer;
 use Dozor\Watchers\ApplicationEventWatcher;
-use ReflectionMethod;
-use RuntimeException;
 
 final class TelemetryPrivacyTest extends TestCase
 {
@@ -71,7 +69,7 @@ final class TelemetryPrivacyTest extends TestCase
             $records[] = $record;
         });
         $core = new Dozor($ingest, ['enabled' => true, 'sampling' => ['exceptions' => 1.0]]);
-        $core->recordException(new RuntimeException('Request failed: https://service.test/path?token=super-secret'));
+        $core->recordException(new \RuntimeException('Request failed: https://service.test/path?token=super-secret'));
 
         self::assertCount(1, $records);
         self::assertStringNotContainsString('super-secret', $records[0]['payload']['message']);
@@ -80,7 +78,7 @@ final class TelemetryPrivacyTest extends TestCase
     public function test_sql_signature_redacts_postgres_literals_comments_and_identifier_values(): void
     {
         $core = new Dozor($this->createStub(IngestContract::class), ['enabled' => true]);
-        $normalize = new ReflectionMethod(Dozor::class, 'normalizeSql');
+        $normalize = new \ReflectionMethod(Dozor::class, 'normalizeSql');
         $sql = 'select "private-user@example.test" from accounts where secret = $$super-secret$$ '
             . 'and other = $tag$another-secret$tag$ and id = 123 -- private comment';
 
@@ -140,8 +138,8 @@ final class TelemetryPrivacyTest extends TestCase
         $core = new Dozor($ingest, ['enabled' => true, 'sampling' => ['exceptions' => 1.0]]);
 
         try {
-            throw new RuntimeException('private https://service.test?token=secret');
-        } catch (RuntimeException $exception) {
+            throw new \RuntimeException('private https://service.test?token=secret');
+        } catch (\RuntimeException $exception) {
             $core->recordException($exception);
         }
 

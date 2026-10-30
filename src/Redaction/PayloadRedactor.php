@@ -4,26 +4,6 @@ declare(strict_types=1);
 
 namespace Dozor\Redaction;
 
-use Throwable;
-
-use function array_keys;
-use function get_debug_type;
-use function get_resource_type;
-use function is_bool;
-use function in_array;
-use function is_array;
-use function is_float;
-use function is_int;
-use function is_object;
-use function is_resource;
-use function is_scalar;
-use function is_string;
-use function json_encode;
-use function mb_strlen;
-use function mb_substr;
-use function strtolower;
-use function trim;
-
 final readonly class PayloadRedactor
 {
     /**
@@ -161,7 +141,7 @@ final readonly class PayloadRedactor
                 $payload,
                 JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE,
             );
-        } catch (Throwable) {
+        } catch (\Throwable) {
             return null;
         }
 
@@ -178,7 +158,7 @@ final readonly class PayloadRedactor
             return $value;
         }
 
-        if ($value instanceof Throwable) {
+        if ($value instanceof \Throwable) {
             return [
                 '_type' => $value::class,
                 'message' => mb_substr($value->getMessage(), 0, 500),

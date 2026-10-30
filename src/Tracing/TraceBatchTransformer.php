@@ -6,23 +6,6 @@ namespace Dozor\Tracing;
 
 use Illuminate\Support\Arr;
 use Illuminate\Support\Carbon;
-use Throwable;
-
-use function array_values;
-use function count;
-use function implode;
-use function is_array;
-use function is_bool;
-use function is_float;
-use function is_int;
-use function is_numeric;
-use function is_string;
-use function json_encode;
-use function max;
-use function mb_substr;
-use function mb_strtoupper;
-use function mb_strlen;
-use function round;
 
 final class TraceBatchTransformer
 {
@@ -295,6 +278,8 @@ final class TraceBatchTransformer
                 'request_payload_preview_truncated' => $requestPayloadPreviewTruncated,
                 'lifecycle_ready' => $hasLifecycle,
                 'lifecycle_stages' => Arr::get($rootPayload, 'lifecycle_stages', []),
+                'inertia' => (bool) Arr::get($rootPayload, 'inertia', false),
+                'ssr_duration_measured' => Arr::get($rootPayload, 'inertia') === true ? false : null,
             ],
             'exception' => $traceException,
         ];
@@ -356,7 +341,7 @@ final class TraceBatchTransformer
         if (is_numeric($rootTimestamp)) {
             try {
                 return Carbon::createFromTimestamp((float) $rootTimestamp)->format('Y-m-d\\TH:i:s.uP');
-            } catch (Throwable) {
+            } catch (\Throwable) {
                 // fall through to happened_at path
             }
         }
@@ -371,7 +356,7 @@ final class TraceBatchTransformer
             if (is_numeric($timestamp)) {
                 try {
                     return Carbon::createFromTimestamp((float) $timestamp)->format('Y-m-d\\TH:i:s.uP');
-                } catch (Throwable) {
+                } catch (\Throwable) {
                     // fall through to happened_at path
                 }
             }
@@ -539,6 +524,8 @@ final class TraceBatchTransformer
                     'status' => Arr::get($payload, 'status'),
                     'attempts' => Arr::get($payload, 'attempts'),
                     'worker' => Arr::get($payload, 'worker'),
+                    'broadcast' => Arr::get($payload, 'broadcast') === true ? true : null,
+                    'broadcast_name' => is_string(Arr::get($payload, 'broadcast_name')) ? Arr::get($payload, 'broadcast_name') : null,
                 ],
             ],
             'cache' => [
@@ -1033,7 +1020,7 @@ final class TraceBatchTransformer
 
             try {
                 $ts = Carbon::parse($happenedAt)->valueOf();
-            } catch (Throwable) {
+            } catch (\Throwable) {
                 continue;
             }
 
@@ -1435,7 +1422,7 @@ final class TraceBatchTransformer
                     $startMs = Carbon::parse($traceStartedAt)->valueOf();
 
                     return max(0, $eventMs - $startMs);
-                } catch (Throwable) {
+                } catch (\Throwable) {
                     return 0;
                 }
             }
@@ -1448,7 +1435,7 @@ final class TraceBatchTransformer
             $startMs = Carbon::parse($traceStartedAt)->valueOf();
 
             return max(0, $eventMs - $startMs);
-        } catch (Throwable) {
+        } catch (\Throwable) {
             return 0;
         }
     }

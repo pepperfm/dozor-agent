@@ -7,7 +7,6 @@ namespace Dozor\Hooks;
 use Dozor\Contracts\DozorContract;
 use Dozor\Tracing\RequestLifecycleStage;
 use Illuminate\Foundation\Http\Events\RequestHandled;
-use Throwable;
 
 final readonly class RequestHandledListener
 {
@@ -25,7 +24,7 @@ final readonly class RequestHandledListener
                 $event->response,
             );
             $this->core->transitionLifecycleStage(RequestLifecycleStage::Sending->value);
-        } catch (Throwable) {
+        } catch (\Throwable) {
         }
     }
 }

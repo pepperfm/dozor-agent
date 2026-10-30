@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Dozor;
 
 use Dozor\Contracts\IngestContract;
-use RuntimeException;
 
 final class NullIngest implements IngestContract
 {
@@ -23,7 +22,7 @@ final class NullIngest implements IngestContract
 
     public function ping(): void
     {
-        throw new RuntimeException('Dozor ingest is unavailable');
+        throw new \RuntimeException('Dozor ingest is unavailable');
     }
 
     public function digest(): void

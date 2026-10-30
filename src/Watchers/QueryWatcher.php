@@ -4,9 +4,8 @@ declare(strict_types=1);
 
 namespace Dozor\Watchers;
 
-use Dozor\Contracts\DozorContract;
 use Illuminate\Database\Events\QueryExecuted;
-use Throwable;
+use Dozor\Contracts\DozorContract;
 
 final readonly class QueryWatcher
 {
@@ -18,7 +17,7 @@ final readonly class QueryWatcher
     {
         try {
             $this->core->recordQuery($event);
-        } catch (Throwable) {
+        } catch (\Throwable) {
         }
     }
 }
