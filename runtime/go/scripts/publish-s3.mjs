@@ -208,12 +208,15 @@ export function createStorage(env, _workspace, distributionOverride, fetcher = f
 
   async function request(method, key, options = {}, missingAllowed = false) {
     for (let attempt = 1; attempt <= 3; attempt++) {
-      // Keep signed URLs inside this adapter: they contain credentials and must never be logged.
-      const url = client.presign(cfg.prefix + key, { method, expiresIn: 900,
+      // Debug: log the presigned URL to understand what's being sent
+      console.error('[DEBUG] S3Client config:', { endpoint: cfg.endpoint, bucket: cfg.bucket, region: cfg.region, prefix: cfg.prefix, virtualHostedStyle: false })
+      const presignedUrl = client.presign(cfg.prefix + key, { method, expiresIn: 900,
         ...(options.headers?.['content-type'] ? { type: options.headers['content-type'] } : {}) })
+      console.error('[DEBUG] presign URL:', presignedUrl.toString().slice(0, 200) + '...')
+      console.error('[DEBUG] method:', method, 'key:', key)
       let response
       try {
-        response = await fetcher(url, { ...options, method, redirect: 'error', signal: AbortSignal.timeout(180_000) })
+        response = await fetcher(presignedUrl, { ...options, method, redirect: 'error', signal: AbortSignal.timeout(180_000) })
       } catch {
         if (attempt < 3) { await Bun.sleep(attempt * 1000); continue }
         throw new Error(`S3 ${method} failed [NetworkOrTlsError].`)
