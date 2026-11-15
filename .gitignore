@@ -12,5 +12,6 @@ vendor
 
 # Compiled Linux artifacts, release SHA256 manifests
 /runtime/go/dist/
+/runtime/go/node_modules/
 
 .env

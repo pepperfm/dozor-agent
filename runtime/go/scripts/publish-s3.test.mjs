@@ -6,14 +6,23 @@ import { join } from 'node:path'
 import {
   createStorage, configForPechka, distribution, loadCandidate,
   publishCandidate, verifyPublicFile,
-  setDistributionOverride, resetDistributionOverride,
+  setDistributionOverride,
 } from './publish-s3.mjs'
 
 const checksum = bytes => createHash('sha256').update(bytes).digest('hex')
 const sha = 'a'.repeat(40)
 const dirs = []
 
-afterEach(() => { resetDistributionOverride() })
+// Tests must not depend on S3_* variables exported in the developer shell.
+const testDefaults = {
+  endpoint: 'https://test.example.com',
+  bucket: 'test-bucket',
+  region: 'test-region',
+  prefix: 'dozor-agent/linux/',
+  publicUrl: 'https://public.test/dozor-agent/linux/',
+}
+setDistributionOverride(testDefaults)
+afterEach(() => { setDistributionOverride(testDefaults) })
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -136,19 +145,23 @@ it('verifies full unauthenticated HTTPS responses', async () => {
     .rejects.toThrow('integrity')
 })
 
-it('uses path-style S3 signing and does not disclose credentials', async () => {
+it('signs requests through the AWS SDK client and does not disclose credentials', async () => {
   expect(() => createStorage({})).toThrow('S3_ACCESS_KEY_ID')
-  const signed = []
-  const fakeFetch = async (url, options) => {
-    signed.push({ url: new URL(url), options })
-    return new Response('<Error><Code>AccessDenied</Code><Message>private-secret</Message></Error>',
-      { status: 403 })
+  const sent = []
+  const fakeClient = {
+    async send(command) {
+      sent.push(command)
+      const error = new Error('AccessDenied: secret detail with private-secret and access-key')
+      error.name = 'AccessDenied'
+      error.$metadata = { httpStatusCode: 403 }
+      throw error
+    },
   }
   const storage = createStorage(
     { S3_ACCESS_KEY_ID: 'access-key', S3_SECRET_ACCESS_KEY: 'private-secret' },
     null,
     null,
-    fakeFetch,
+    { client: fakeClient },
   )
   try {
     await storage.read('artifact')
@@ -158,16 +171,21 @@ it('uses path-style S3 signing and does not disclose credentials', async () => {
     expect(error.message).not.toContain('private-secret')
     expect(error.message).not.toContain('access-key')
   }
-  expect(signed[0].url.pathname).toBe(
-    '/' + distribution.bucket + '/' + distribution.prefix + 'artifact')
-  expect(signed[0].url.searchParams.get('X-Amz-Signature')).toBeTruthy()
+  expect(sent[0].constructor.name).toBe('GetObjectCommand')
+  expect(sent[0].input.Bucket).toBe(distribution.bucket)
+  expect(sent[0].input.Key).toBe(distribution.prefix + 'artifact')
 })
 
-it('accepts distribution overrides for the storage adapter', async () => {
-  const signed = []
-  const fakeFetch = async (url, options) => {
-    signed.push({ url: new URL(url), options })
-    return new Response('<Error><Code>AccessDenied</Code><Message>msg</Message></Error>', { status: 403 })
+it('passes signed metadata on uploads and accepts distribution overrides', async () => {
+  const sent = []
+  const fakeClient = {
+    async send(command) {
+      sent.push(command)
+      const error = new Error('denied')
+      error.name = 'AccessDenied'
+      error.$metadata = { httpStatusCode: 403 }
+      throw error
+    },
   }
   const overrides = { endpoint: 'https://custom.example.com', bucket: 'my-bucket', region: 'us-east-1' }
   setDistributionOverride(overrides)
@@ -176,17 +194,49 @@ it('accepts distribution overrides for the storage adapter', async () => {
     { S3_ACCESS_KEY_ID: 'k', S3_SECRET_ACCESS_KEY: 's' },
     null,
     null,
-    fakeFetch,
+    { client: fakeClient },
   )
+  const dir = mkdtempSync(join(tmpdir(), 'dozor-s3-put-'))
+  const filePath = join(dir, 'artifact.bin')
+  writeFileSync(filePath, 'payload')
   try {
-    await storage.read('test')
+    await storage.put('artifact', filePath, {
+      sha256: 'digest', contentType: 'application/octet-stream', cacheControl: 'no-cache',
+    })
     throw new Error('Expected S3 error')
-  } catch { /* ignore */ }
-
-  expect(signed[0].url.pathname).toBe('/my-bucket/' + distribution.prefix + 'test')
-  expect(signed[0].url.hostname).toBe('custom.example.com')
+  } catch (error) {
+    expect(error.message).toContain('[HTTP 403 AccessDenied]')
+  }
+  expect(sent[0].constructor.name).toBe('PutObjectCommand')
+  expect(sent[0].input.Bucket).toBe('my-bucket')
+  expect(sent[0].input.Key).toBe(distribution.prefix + 'artifact')
+  // Signed by the SDK into SigV4, not sent as raw fetch headers.
+  expect(sent[0].input.CacheControl).toBe('no-cache')
+  expect(sent[0].input.Metadata).toEqual({ sha256: 'digest' })
+  expect(sent[0].input.ContentType).toBe('application/octet-stream')
 
   expect(() => createStorage({})).toThrow('S3_ACCESS_KEY_ID')
+})
+
+it('maps missing objects to null and network failures to safe errors', async () => {
+  const missing = {
+    async send() {
+      const error = new Error('NotFound')
+      error.name = 'NoSuchKey'
+      error.$metadata = { httpStatusCode: 404 }
+      throw error
+    },
+  }
+  const storage = createStorage({ S3_ACCESS_KEY_ID: 'k', S3_SECRET_ACCESS_KEY: 's' },
+    null, null, { client: missing })
+  expect(await storage.read('absent')).toBeNull()
+  expect(await storage.head('absent')).toBeNull()
+
+  const offline = { async send() { throw Object.assign(new Error('ECONNREFUSED with token'), { name: 'Error' }) } }
+  const offlineStorage = createStorage({ S3_ACCESS_KEY_ID: 'k', S3_SECRET_ACCESS_KEY: 's' },
+    null, null, { client: offline })
+  await expect(offlineStorage.read('x')).rejects.toThrow('[HTTP Network]')
+  await expect(offlineStorage.read('x')).rejects.not.toThrow('token')
 })
 
 it('refuses older or conflicting commits without mutating stable feed', async () => {

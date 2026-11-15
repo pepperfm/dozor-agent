@@ -9,12 +9,19 @@
 import { createHash } from 'node:crypto'
 import { appendFileSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { S3Client } from 'bun'
+import {
+  GetObjectCommand, HeadObjectCommand, PutObjectCommand,
+  S3Client as AwsS3Client,
+} from '@aws-sdk/client-s3'
 import { pathToFileURL } from 'node:url'
 
 // ---------------------------------------------------------------------------
 // Distribution config — loaded from env at module init, overridable by tests
 // ---------------------------------------------------------------------------
+
+// Object keys are resolved against publicUrl with new URL(name, base), which
+// silently drops the base path when the slash is missing. Keep it canonical.
+const withTrailingSlash = url => url.endsWith('/') ? url : url + '/'
 
 const _defaults = {
   endpoint: 'https://s3.ru1.storage.beget.cloud',
@@ -24,12 +31,14 @@ const _defaults = {
   publicUrl: 'https://s3.streams-panel.ru/dozor-agent/linux/',
 }
 
+const publicUrlFrom = value => withTrailingSlash(value || _defaults.publicUrl)
+
 let _distribution = {
   endpoint:    process.env.S3_ENDPOINT || _defaults.endpoint,
   bucket:      process.env.S3_BUCKET || _defaults.bucket,
   region:      process.env.S3_REGION || _defaults.region,
   prefix:      process.env.S3_PREFIX || _defaults.prefix,
-  publicUrl:   process.env.S3_PUBLIC_URL || _defaults.publicUrl,
+  publicUrl:   publicUrlFrom(process.env.S3_PUBLIC_URL),
 }
 
 /** Override the distribution object (for tests only). */
@@ -188,7 +197,11 @@ export async function publishCandidate(candidate, storage, verify = verifyPublic
 // Storage factory
 // ---------------------------------------------------------------------------
 
-export function createStorage(env, _workspace, distributionOverride, fetcher = fetch) {
+// AWS SDK v3 signs CacheControl/Metadata into the SigV4 signature. Selectel
+// rejects any request header that is present but unsigned ("headers present in
+// the request which were not signed"), so presign-and-fetch with extra headers
+// cannot be used against it. The SDK also retries throttling/5xx internally.
+export function createStorage(env, _workspace, distributionOverride, clientOptions = {}) {
   const accessKeyId = env.S3_ACCESS_KEY_ID
   const secretAccessKey = env.S3_SECRET_ACCESS_KEY
   if (!accessKeyId || !secretAccessKey) {
@@ -196,55 +209,56 @@ export function createStorage(env, _workspace, distributionOverride, fetcher = f
   }
 
   const cfg = distributionOverride ?? distribution
-
-  const client = new S3Client({
-    accessKeyId: accessKeyId,
-    secretAccessKey: secretAccessKey,
-    endpoint: cfg.endpoint,
-    bucket: cfg.bucket,
+  const client = clientOptions.client ?? new AwsS3Client({
     region: cfg.region,
-    virtualHostedStyle: false,
+    endpoint: cfg.endpoint,
+    forcePathStyle: true, // Selectel path-style endpoints: /<bucket>/<key>
+    maxAttempts: 3,
+    requestHandler: clientOptions.requestHandler,
+    credentials: { accessKeyId, secretAccessKey },
   })
 
-  async function request(method, key, options = {}, missingAllowed = false) {
-    for (let attempt = 1; attempt <= 3; attempt++) {
-      const presignedUrl = client.presign(cfg.prefix + key, { method, expiresIn: 900,
-        ...(options.headers?.['content-type'] ? { type: options.headers['content-type'] } : {}) })
-      let response
-      try {
-        response = await fetcher(presignedUrl, { ...options, method, redirect: 'error', signal: AbortSignal.timeout(180_000) })
-      } catch {
-        if (attempt < 3) { await Bun.sleep(attempt * 1000); continue }
-        throw new Error(`S3 ${method} failed [NetworkOrTlsError].`)
-      }
-      if (response.ok) return response
-      const body = await response.text()
-      const code = body.match(/<Code>([A-Za-z0-9]+)<\/Code>/)?.[1]
-      if (missingAllowed && response.status === 404 && (!code || code === 'NoSuchKey')) return null
-      if ((response.status === 429 || response.status >= 500) && attempt < 3) {
-        await Bun.sleep(attempt * 1000)
-        continue
-      }
-      const allowed = new Set(['AccessDenied', 'InvalidAccessKeyId', 'SignatureDoesNotMatch', 'NoSuchBucket',
-        'RequestTimeTooSkewed', 'AuthorizationHeaderMalformed', 'InvalidArgument', 'NoSuchKey'])
-      throw new Error(`S3 ${method} failed [HTTP ${response.status}${allowed.has(code) ? ` ${code}` : ''}].`)
-    }
+  // Error messages must stay safe: never echo SDK internals that can contain
+  // request URLs, credentials or storage responses.
+  function storageError(method, error) {
+    const status = error?.$metadata?.httpStatusCode
+    const code = typeof error?.name === 'string' && /^[A-Za-z0-9]+$/.test(error.name) ? error.name : ''
+    if (status === 404 && (!code || code === 'NoSuchKey' || code === 'NotFound')) return null
+    return new Error(`S3 ${method} failed [HTTP ${status ?? 'Network'}${
+      status && code ? ` ${code}` : ''}].`)
   }
+
   return {
     async read(key) {
-      const response = await request('GET', key, {}, true)
-      return response === null ? null : Buffer.from(await response.arrayBuffer())
+      try {
+        const result = await client.send(new GetObjectCommand({ Bucket: cfg.bucket, Key: cfg.prefix + key }))
+        return Buffer.from(await result.Body.transformToByteArray())
+      } catch (error) {
+        const safe = storageError('GET', error)
+        if (safe === null) return null
+        throw safe
+      }
     },
     async head(key) {
-      const response = await request('HEAD', key, {}, true)
-      return response === null ? null : { ContentLength: Number(response.headers.get('content-length')),
-        Metadata: { sha256: response.headers.get('x-amz-meta-sha256') } }
+      try {
+        const result = await client.send(new HeadObjectCommand({ Bucket: cfg.bucket, Key: cfg.prefix + key }))
+        return { ContentLength: result.ContentLength, Metadata: { sha256: result.Metadata?.sha256 } }
+      } catch (error) {
+        const safe = storageError('HEAD', error)
+        if (safe === null) return null
+        throw safe
+      }
     },
     async put(key, path, metadata) {
-      await request('PUT', key, { body: readFileSync(path), headers: {
-        'content-type': metadata.contentType, 'cache-control': metadata.cacheControl,
-        'x-amz-meta-sha256': metadata.sha256,
-      } })
+      try {
+        await client.send(new PutObjectCommand({
+          Bucket: cfg.bucket, Key: cfg.prefix + key, Body: readFileSync(path),
+          ContentType: metadata.contentType, CacheControl: metadata.cacheControl,
+          Metadata: { sha256: metadata.sha256 },
+        }))
+      } catch (error) {
+        throw storageError('PUT', error)
+      }
     },
   }
 }

@@ -63,7 +63,7 @@ Go запускается с `--env-file=/path/to/.env`: читает тольк
 Дополнительный сквозной тест PHP-клиент → Go → **реальный** Laravel ingest → PostgreSQL добавлен в `pepperfm/dozor/tests/E2E/AgentSandboxFlowTest.php` и подключён в серверный workflow. Пока приватный GitHub Actions job завершается до появления runner/steps, его прохождение **не подтверждено**; это отдельный обязательный gate перед объявлением полной готовности.
 
 
-### Локальный pre-commit и публикация Go Agent в Beget S3
+### Локальный pre-commit и публикация Go Agent в Selectel Object Storage
 
 **GitHub Actions в `dozor-agent` не используются.** Build и публикация
 выполняются на Mac владельца, как в SPP, а целевые VPS только скачивают
@@ -89,31 +89,33 @@ bash scripts/build-pechka.sh dist/pechka
 ```
 
 После коммита и **push в master** запускать публикацию вручную (нужны
-Go 1.23+, Bun и AWS S3 credentials в окружении):
+Go 1.23+, Bun и установленные зависимости `cd runtime/go && bun install`):
 
 ```bash
-export AWS_ACCESS_KEY_ID='...'
-export AWS_SECRET_ACCESS_KEY='...'
 git push origin master
 cd runtime/go
 ./scripts/publish-pechka-release.sh
 ```
 
 Скрипт требует чистый checkout и синхронизацию с `origin/master`,
-повторно выполняет тесты и сборку, а затем использует портированный из SPP
-Bun S3 publisher: path-style signed requests, проверка SHA-256, повторные
-попытки и проверка публичных HTTPS-ответов. Не переносите GitHub Secrets
-из SPP: для **локальной** публикации нужны локальные AWS-переменные.
-Не добавляйте credentials в файлы репозитория и Git.
+повторно выполняет тесты и сборку, затем публикует через
+`scripts/publish-s3.mjs` (AWS SDK v3, path-style, подпись CacheControl/Metadata
+в SigV4, ретраи и проверка публичных HTTPS-ответов). Конфигурация
+`S3_ENDPOINT`, `S3_BUCKET`, `S3_REGION`, `S3_PREFIX`, `S3_PUBLIC_URL`,
+`S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` читается из `.env` в корне
+репозитория (`bun --env-file`). `S3_PUBLIC_URL` обязан включать путь
+префикса и завершаться слэшем:
+`https://<bucket-id>.selstorage.ru/dozor-agent/linux/`.
+Не добавляйте credentials в файлы репозитория и Git (`.env` игнорируется).
 
-Бакет SPP тот же, префикс отдельный. Два публичных имени стабильны,
-обновляются после проверки immutable-объектов; `latest.json` публикуется
-**последним**, и Печка использует именно его для выбора неподвижной версии:
+Публичные имена стабильны, обновляются после проверки immutable-объектов;
+`latest.json` публикуется **последним**, и Печка использует именно его для
+выбора неподвижной версии:
 
 ```text
-https://s3.streams-panel.ru/dozor-agent/linux/dozor-agent-linux-amd64
-https://s3.streams-panel.ru/dozor-agent/linux/dozor-agent-linux-arm64
-https://s3.streams-panel.ru/dozor-agent/linux/latest.json
+https://<bucket-id>.selstorage.ru/dozor-agent/linux/dozor-agent-linux-amd64
+https://<bucket-id>.selstorage.ru/dozor-agent/linux/dozor-agent-linux-arm64
+https://<bucket-id>.selstorage.ru/dozor-agent/linux/latest.json
 ```
 
 Внутри `latest.json` лежат SHA-256 и неизменяемые URL
@@ -123,7 +125,7 @@ https://s3.streams-panel.ru/dozor-agent/linux/latest.json
 
 ```dotenv
 PECHKA_DOZOR_AGENT_FEATURE_ENABLED=true
-PECHKA_DOZOR_AGENT_MANIFEST_URL=https://s3.streams-panel.ru/dozor-agent/linux/latest.json
+PECHKA_DOZOR_AGENT_MANIFEST_URL=https://<bucket-id>.selstorage.ru/dozor-agent/linux/latest.json
 ```
 
 Повторная публикация старого коммита не может откатить более новый feed.
