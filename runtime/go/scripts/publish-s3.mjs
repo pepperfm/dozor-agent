@@ -1,18 +1,76 @@
-// Port of StreamsPanel Player's verified Beget S3 publisher.
-// The Dozor Go build is content-addressed by the Git commit that built the PHP SDK.
+// S3 publisher for Dozor Agent release binaries.
+//
+// Configuration is driven entirely by environment variables:
+//   S3_ENDPOINT, S3_BUCKET, S3_REGION, S3_PREFIX, S3_PUBLIC_URL,
+//   S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY
+//
+// Tests can override any value via setDistributionOverride() before running.
+
 import { createHash } from 'node:crypto'
 import { appendFileSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { S3Client } from 'bun'
 import { pathToFileURL } from 'node:url'
 
-export const distribution = Object.freeze({
+// ---------------------------------------------------------------------------
+// Distribution config — loaded from env at module init, overridable by tests
+// ---------------------------------------------------------------------------
+
+const _defaults = {
   endpoint: 'https://s3.ru1.storage.beget.cloud',
   bucket: 'd12436381c44-spp',
   region: 'ru1',
   prefix: 'dozor-agent/linux/',
   publicUrl: 'https://s3.streams-panel.ru/dozor-agent/linux/',
+}
+
+let _distribution = {
+  endpoint:    process.env.S3_ENDPOINT || _defaults.endpoint,
+  bucket:      process.env.S3_BUCKET || _defaults.bucket,
+  region:      process.env.S3_REGION || _defaults.region,
+  prefix:      process.env.S3_PREFIX || _defaults.prefix,
+  publicUrl:   process.env.S3_PUBLIC_URL || _defaults.publicUrl,
+}
+
+/** Override the distribution object (for tests only). */
+export function setDistributionOverride(overrides) {
+  Object.assign(_distribution, overrides)
+}
+
+/** Reset distribution back to live environment values. */
+export function resetDistributionOverride() {
+  Object.assign(_distribution, {
+    endpoint:    process.env.S3_ENDPOINT || _defaults.endpoint,
+    bucket:      process.env.S3_BUCKET || _defaults.bucket,
+    region:      process.env.S3_REGION || _defaults.region,
+    prefix:      process.env.S3_PREFIX || _defaults.prefix,
+    publicUrl:   process.env.S3_PUBLIC_URL || _defaults.publicUrl,
+  })
+}
+
+/** Read-only frozen snapshot — returns a new frozen object each call. */
+export const distribution = Object.freeze({
+  get endpoint()    { return _distribution.endpoint },
+  get bucket()      { return _distribution.bucket },
+  get region()      { return _distribution.region },
+  get prefix()      { return _distribution.prefix },
+  get publicUrl()   { return _distribution.publicUrl },
 })
+
+// ---------------------------------------------------------------------------
+// Validation helpers
+// ---------------------------------------------------------------------------
+
+function validateEnv(requiredVars) {
+  const missing = requiredVars.filter(v => !process.env[v])
+  if (missing.length) {
+    throw new Error('Missing required S3 environment variable' + (missing.length > 1 ? 's' : '') + ': ' + missing.join(', '))
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Artifact loading & verification
+// ---------------------------------------------------------------------------
 
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex')
 const commitPattern = /^[a-f0-9]{40}$/
@@ -67,6 +125,10 @@ export async function verifyPublicFile(file, fetcher = fetch) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// S3 publishing
+// ---------------------------------------------------------------------------
+
 export async function publishCandidate(candidate, storage, verify = verifyPublicFile) {
   const previous = await storage.read('latest.json')
   if (previous !== null) {
@@ -99,7 +161,7 @@ export async function publishCandidate(candidate, storage, verify = verifyPublic
     await verify(file)
   }
 
-  // Human-friendly stable SPP-style names. Never use them to install:
+  // Human-friendly stable names. Never use them to install:
   // the immutable manifest points to SHA-addressed binaries, avoiding
   // race conditions while the aliases are being replaced.
   for (const file of candidate.files.slice(0, 2)) {
@@ -122,20 +184,32 @@ export async function publishCandidate(candidate, storage, verify = verifyPublic
   await verify({ ...manifest, name: 'latest.json' })
 }
 
-export function createStorage(env, _workspace, fetcher = fetch) {
-  if (!env.AWS_ACCESS_KEY_ID || !env.AWS_SECRET_ACCESS_KEY) {
-    throw new Error('SPP_S3_ACCESS_KEY_ID and SPP_S3_SECRET_ACCESS_KEY are required in the publication step.')
+// ---------------------------------------------------------------------------
+// Storage factory
+// ---------------------------------------------------------------------------
+
+export function createStorage(env, _workspace, distributionOverride, fetcher = fetch) {
+  const accessKeyId = env.S3_ACCESS_KEY_ID
+  const secretAccessKey = env.S3_SECRET_ACCESS_KEY
+  if (!accessKeyId || !secretAccessKey) {
+    throw new Error('S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY are required in the publication step.')
   }
+
+  const cfg = distributionOverride ?? distribution
+
   const client = new S3Client({
-    accessKeyId: env.AWS_ACCESS_KEY_ID,
-    secretAccessKey: env.AWS_SECRET_ACCESS_KEY,
-    endpoint: distribution.endpoint, bucket: distribution.bucket, region: distribution.region,
+    accessKeyId: accessKeyId,
+    secretAccessKey: secretAccessKey,
+    endpoint: cfg.endpoint,
+    bucket: cfg.bucket,
+    region: cfg.region,
     virtualHostedStyle: false,
   })
+
   async function request(method, key, options = {}, missingAllowed = false) {
     for (let attempt = 1; attempt <= 3; attempt++) {
       // Keep signed URLs inside this adapter: they contain credentials and must never be logged.
-      const url = client.presign(distribution.prefix + key, { method, expiresIn: 900,
+      const url = client.presign(cfg.prefix + key, { method, expiresIn: 900,
         ...(options.headers?.['content-type'] ? { type: options.headers['content-type'] } : {}) })
       let response
       try {
@@ -176,30 +250,52 @@ export function createStorage(env, _workspace, fetcher = fetch) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
-export function configForPechka() {
-  return [
+export function configForPechka(candidate) {
+  const lines = [
     'PECHKA_DOZOR_AGENT_FEATURE_ENABLED=true',
     `PECHKA_DOZOR_AGENT_MANIFEST_URL=${distribution.publicUrl}latest.json`,
-  ].join('\n')
+  ]
+  if (candidate) {
+    const binNames = ['dozor-agent-linux-amd64', 'dozor-agent-linux-arm64']
+    const entry = candidate.files?.find(f => f.name.endsWith('manifest.json'))
+    if (entry) {
+      const manifest = JSON.parse(entry.bytes.toString('utf8'))
+      for (const [name, info] of Object.entries(manifest.binaries || {})) {
+        if (info?.sha256) {
+          lines.push(`PECHKA_DOZOR_SDK_SHA=${name}=${info.sha256}`)
+        }
+      }
+    }
+  }
+  return lines.join('\n')
 }
+
+// ---------------------------------------------------------------------------
+// CLI entry point
+// ---------------------------------------------------------------------------
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   try {
+    validateEnv(['S3_ACCESS_KEY_ID', 'S3_SECRET_ACCESS_KEY'])
+
     const sha = process.env.GITHUB_SHA || process.env.DOZOR_RELEASE_SHA
     if (!commitPattern.test(sha ?? '')) throw new Error('GITHUB_SHA or DOZOR_RELEASE_SHA must be a 40-character commit.')
     const storage = createStorage(process.env)
     if (process.argv.includes('--check-access')) {
       await storage.read(`${sha}/manifest.json`)
-      console.log('Beget S3 read access verified.')
+      console.log('S3 read access verified.')
     } else {
       const dist = join(import.meta.dir, '../dist/pechka')
       const committedAt = Number(process.env.DOZOR_SOURCE_COMMIT_TS)
       if (!Number.isSafeInteger(committedAt) || committedAt <= 0) throw new Error('DOZOR_SOURCE_COMMIT_TS is required.')
       const candidate = loadCandidate(dist, sha, committedAt)
       await publishCandidate(candidate, storage)
-      const config = configForPechka()
-      console.log('Published and verified Go Agent (stable URLs + latest.json) on Beget S3. Configure Pechka once:')
+      const config = configForPechka(candidate)
+      console.log('Published and verified Go Agent (stable URLs + latest.json). Configure Pechka:')
       console.log(config)
       if (process.env.GITHUB_STEP_SUMMARY) {
         appendFileSync(process.env.GITHUB_STEP_SUMMARY,

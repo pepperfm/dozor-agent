@@ -6,12 +6,18 @@ import { join } from 'node:path'
 import {
   createStorage, configForPechka, distribution, loadCandidate,
   publishCandidate, verifyPublicFile,
+  setDistributionOverride, resetDistributionOverride,
 } from './publish-s3.mjs'
 
 const checksum = bytes => createHash('sha256').update(bytes).digest('hex')
 const sha = 'a'.repeat(40)
 const dirs = []
-afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }) })
+
+afterEach(() => { resetDistributionOverride() })
+
+// ---------------------------------------------------------------------------
+// Fixtures
+// ---------------------------------------------------------------------------
 
 function candidateFixture() {
   const dir = mkdtempSync(join(tmpdir(), 'dozor-s3-test-'))
@@ -41,6 +47,10 @@ function fakeStorage() {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
 it('produces pinned Linux artifacts and the Pechka settings from the same commit', () => {
   const { candidate, entries } = candidateFixture()
   expect(candidate.files).toHaveLength(4)
@@ -50,7 +60,7 @@ it('produces pinned Linux artifacts and the Pechka settings from the same commit
   ])
   const config = configForPechka(candidate)
   expect(config).toContain('PECHKA_DOZOR_AGENT_MANIFEST_URL=' + distribution.publicUrl + 'latest.json')
-  expect(config).not.toContain('PECHKA_DOZOR_SDK_SHA=')
+  expect(config).toContain('PECHKA_DOZOR_SDK_SHA=')
   const manifest = JSON.parse(readFileSync(join(candidate.files[0].path, '../manifest.json'), 'utf8'))
   expect(manifest.source_commit).toBe(sha)
   expect(manifest.source_committed_at).toBe(1700000000)
@@ -126,16 +136,20 @@ it('verifies full unauthenticated HTTPS responses', async () => {
     .rejects.toThrow('integrity')
 })
 
-it('uses SPP path-style S3 signing and does not disclose credentials', async () => {
-  expect(() => createStorage({})).toThrow('SPP_S3_ACCESS_KEY_ID')
+it('uses path-style S3 signing and does not disclose credentials', async () => {
+  expect(() => createStorage({})).toThrow('S3_ACCESS_KEY_ID')
   const signed = []
   const fakeFetch = async (url, options) => {
     signed.push({ url: new URL(url), options })
     return new Response('<Error><Code>AccessDenied</Code><Message>private-secret</Message></Error>',
       { status: 403 })
   }
-  const storage = createStorage({ AWS_ACCESS_KEY_ID: 'access-key', AWS_SECRET_ACCESS_KEY: 'private-secret' },
-    null, fakeFetch)
+  const storage = createStorage(
+    { S3_ACCESS_KEY_ID: 'access-key', S3_SECRET_ACCESS_KEY: 'private-secret' },
+    null,
+    null,
+    fakeFetch,
+  )
   try {
     await storage.read('artifact')
     throw new Error('Expected S3 error')
@@ -147,6 +161,32 @@ it('uses SPP path-style S3 signing and does not disclose credentials', async () 
   expect(signed[0].url.pathname).toBe(
     '/' + distribution.bucket + '/' + distribution.prefix + 'artifact')
   expect(signed[0].url.searchParams.get('X-Amz-Signature')).toBeTruthy()
+})
+
+it('accepts distribution overrides for the storage adapter', async () => {
+  const signed = []
+  const fakeFetch = async (url, options) => {
+    signed.push({ url: new URL(url), options })
+    return new Response('<Error><Code>AccessDenied</Code><Message>msg</Message></Error>', { status: 403 })
+  }
+  const overrides = { endpoint: 'https://custom.example.com', bucket: 'my-bucket', region: 'us-east-1' }
+  setDistributionOverride(overrides)
+
+  const storage = createStorage(
+    { S3_ACCESS_KEY_ID: 'k', S3_SECRET_ACCESS_KEY: 's' },
+    null,
+    null,
+    fakeFetch,
+  )
+  try {
+    await storage.read('test')
+    throw new Error('Expected S3 error')
+  } catch { /* ignore */ }
+
+  expect(signed[0].url.pathname).toBe('/my-bucket/' + distribution.prefix + 'test')
+  expect(signed[0].url.hostname).toBe('custom.example.com')
+
+  expect(() => createStorage({})).toThrow('S3_ACCESS_KEY_ID')
 })
 
 it('refuses older or conflicting commits without mutating stable feed', async () => {
